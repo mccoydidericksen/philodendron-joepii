@@ -11,6 +11,7 @@ interface TaskBoardByTypeProps {
     plant: {
       id: string;
       name: string;
+      primaryPhotoUrl: string | null;
     };
   }>;
 }
@@ -34,7 +35,11 @@ export function TaskBoardByType({ tasks }: TaskBoardByTypeProps) {
   const tasksByType = TASK_TYPES.map(({ type, label, icon }) => {
     const typeTasks = tasks
       .filter((task) => task.type === type)
-      .sort((a, b) => new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime());
+      .sort((a, b) => {
+        if (!a.nextDueDate) return 1;
+        if (!b.nextDueDate) return -1;
+        return new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime();
+      });
 
     return {
       type,

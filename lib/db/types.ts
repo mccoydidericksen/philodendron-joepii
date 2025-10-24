@@ -1,5 +1,5 @@
 import type { InferSelectModel, InferInsertModel } from "drizzle-orm";
-import { users, plants, careTasks, taskCompletions, plantMedia, plantNotes, plantLinks, notifications, userNotificationPreferences } from "./schema";
+import { users, plants, careTasks, taskCompletions, plantMedia, plantNotes, plantLinks, notifications, userNotificationPreferences, plantGroups, plantGroupMembers } from "./schema";
 
 // ============================================
 // USER TYPES
@@ -94,6 +94,9 @@ export type RecurrencePattern = {
   specificDays?: number[]; // For weekly: [0-6] where 0 = Sunday
 };
 
+// Task scheduling modes
+export type TaskScheduleMode = "recurring" | "one-time" | "unscheduled";
+
 // ============================================
 // UTILITY TYPES
 // ============================================
@@ -174,3 +177,30 @@ export type HumidityPreference = "low" | "medium" | "high";
 export type GrowthStage = "seedling" | "juvenile" | "mature" | "flowering";
 export type GrowthRate = "slow" | "medium" | "fast";
 export type DifficultyLevel = "beginner" | "intermediate" | "advanced";
+
+// ============================================
+// PLANT GROUP TYPES
+// ============================================
+
+export type PlantGroup = InferSelectModel<typeof plantGroups>;
+export type NewPlantGroup = InferInsertModel<typeof plantGroups>;
+
+export type PlantGroupMember = InferSelectModel<typeof plantGroupMembers>;
+export type NewPlantGroupMember = InferInsertModel<typeof plantGroupMembers>;
+
+export type PlantGroupRole = "admin" | "member";
+
+// Plant group with relations
+export type PlantGroupWithMembers = PlantGroup & {
+  members: (PlantGroupMember & { user: User })[];
+};
+
+export type PlantGroupWithCreator = PlantGroup & {
+  createdBy: User;
+};
+
+export type PlantGroupFull = PlantGroup & {
+  createdBy: User;
+  members: (PlantGroupMember & { user: User })[];
+  plants: Plant[];
+};

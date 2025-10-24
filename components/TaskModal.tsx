@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { completeCareTask, updateCareTask, deleteCareTask, skipTask } from '@/app/actions/tasks';
 import { createNotification } from '@/app/actions/notifications';
 import { Button } from '@/components/ui/button';
-import type { CareTask, CareTaskType } from '@/lib/db/types';
+import type { CareTask, CareTaskType, TaskScheduleMode } from '@/lib/db/types';
 
 interface TaskModalProps {
   task: CareTask & {
@@ -40,12 +40,23 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Determine the current schedule mode from task properties
+  const getCurrentScheduleMode = (): TaskScheduleMode => {
+    if (task.isRecurring && task.recurrencePattern) return 'recurring';
+    if (!task.isRecurring && task.nextDueDate) return 'one-time';
+    return 'unscheduled';
+  };
+
   // Edit form state
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDescription, setEditDescription] = useState(task.description || '');
+  const [editScheduleMode, setEditScheduleMode] = useState<TaskScheduleMode>(getCurrentScheduleMode());
   const [editFrequency, setEditFrequency] = useState(task.recurrencePattern?.frequency || 1);
   const [editUnit, setEditUnit] = useState<'days' | 'weeks' | 'months'>(
     task.recurrencePattern?.unit || 'days'
+  );
+  const [editDueDate, setEditDueDate] = useState(
+    task.nextDueDate && !task.isRecurring ? new Date(task.nextDueDate).toISOString().split('T')[0] : ''
   );
 
   // Complete form state
@@ -79,14 +90,22 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
   }
 
   async function handleSaveEdit() {
+    // Validation
+    if (editScheduleMode === 'one-time' && !editDueDate) {
+      toast.error('Please select a due date for one-time tasks');
+      return;
+    }
+
     setIsSubmitting(true);
     const result = await updateCareTask(task.id, {
       title: editTitle.trim(),
       description: editDescription.trim() || undefined,
-      recurrencePattern: {
+      scheduleMode: editScheduleMode,
+      recurrencePattern: editScheduleMode === 'recurring' ? {
         frequency: editFrequency,
         unit: editUnit,
-      },
+      } : undefined,
+      specificDueDate: editScheduleMode === 'one-time' ? new Date(editDueDate) : undefined,
     });
     setIsSubmitting(false);
 
@@ -140,8 +159,8 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
     }
   }
 
-  const dueDate = new Date(task.nextDueDate);
-  const isOverdue = dueDate < new Date();
+  const dueDate = task.nextDueDate ? new Date(task.nextDueDate) : null;
+  const isOverdue = dueDate ? dueDate < new Date() : false;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
@@ -203,52 +222,131 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps) {
 
         {/* Content */}
         <div className="p-6 space-y-6">
-          {/* Due Date */}
-          <div>
-            <h3 className="text-sm font-medium text-soil mb-2">Due Date</h3>
-            <p className={`text-lg font-semibold ${isOverdue ? 'text-red-600' : 'text-moss-dark'}`}>
-              {dueDate.toLocaleDateString('en-US', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
-              {isOverdue && ' (Overdue)'}
-            </p>
-          </div>
-
-          {/* Recurrence Pattern */}
+          {/* Schedule Type & Due Date */}
           {isEditing ? (
-            <div>
-              <h3 className="text-sm font-medium text-soil mb-2">Recurrence</h3>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  min="1"
-                  value={editFrequency}
-                  onChange={(e) => setEditFrequency(parseInt(e.target.value) || 1)}
-                  className="w-20 rounded-md border-2 border-sage px-3 py-2"
-                />
-                <select
-                  value={editUnit}
-                  onChange={(e) => setEditUnit(e.target.value as any)}
-                  className="flex-1 rounded-md border-2 border-sage px-3 py-2"
-                >
-                  <option value="days">Days</option>
-                  <option value="weeks">Weeks</option>
-                  <option value="months">Months</option>
-                </select>
-              </div>
-            </div>
-          ) : (
-            task.recurrencePattern && (
+            <>
+              {/* Schedule Mode Toggle in Edit Mode */}
               <div>
-                <h3 className="text-sm font-medium text-soil mb-2">Recurrence</h3>
+                <h3 className="text-sm font-medium text-soil mb-2">Schedule Type</h3>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditScheduleMode('recurring')}
+                    className={`flex-1 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                      editScheduleMode === 'recurring'
+                        ? 'border-moss bg-moss text-white'
+                        : 'border-sage bg-white text-moss-dark hover:border-moss'
+                    }`}
+                  >
+                    🔄 Recurring
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditScheduleMode('one-time')}
+                    className={`flex-1 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                      editScheduleMode === 'one-time'
+                        ? 'border-moss bg-moss text-white'
+                        : 'border-sage bg-white text-moss-dark hover:border-moss'
+                    }`}
+                  >
+                    📅 One-time
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditScheduleMode('unscheduled')}
+                    className={`flex-1 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                      editScheduleMode === 'unscheduled'
+                        ? 'border-moss bg-moss text-white'
+                        : 'border-sage bg-white text-moss-dark hover:border-moss'
+                    }`}
+                  >
+                    ⚪ Unscheduled
+                  </button>
+                </div>
+              </div>
+
+              {/* Conditional Schedule Fields */}
+              {editScheduleMode === 'recurring' && (
+                <div>
+                  <h3 className="text-sm font-medium text-soil mb-2">Recurrence</h3>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      value={editFrequency}
+                      onChange={(e) => setEditFrequency(parseInt(e.target.value) || 1)}
+                      className="w-20 rounded-md border-2 border-sage px-3 py-2"
+                    />
+                    <select
+                      value={editUnit}
+                      onChange={(e) => setEditUnit(e.target.value as any)}
+                      className="flex-1 rounded-md border-2 border-sage px-3 py-2"
+                    >
+                      <option value="days">Days</option>
+                      <option value="weeks">Weeks</option>
+                      <option value="months">Months</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {editScheduleMode === 'one-time' && (
+                <div>
+                  <h3 className="text-sm font-medium text-soil mb-2">Due Date</h3>
+                  <input
+                    type="date"
+                    value={editDueDate}
+                    onChange={(e) => setEditDueDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full rounded-md border-2 border-sage px-3 py-2"
+                  />
+                </div>
+              )}
+
+              {editScheduleMode === 'unscheduled' && (
+                <div className="bg-sage/20 rounded-lg p-3 border-2 border-sage">
+                  <p className="text-sm text-moss-dark">
+                    This task will have no scheduled due date.
+                  </p>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Display Mode */}
+              <div>
+                <h3 className="text-sm font-medium text-soil mb-2">Schedule Type</h3>
                 <p className="text-lg text-moss-dark">
-                  Every {task.recurrencePattern.frequency} {task.recurrencePattern.unit}
+                  {getCurrentScheduleMode() === 'recurring' && '🔄 Recurring'}
+                  {getCurrentScheduleMode() === 'one-time' && '📅 One-time'}
+                  {getCurrentScheduleMode() === 'unscheduled' && '⚪ Unscheduled'}
                 </p>
               </div>
-            )
+
+              {task.nextDueDate && dueDate && (
+                <div>
+                  <h3 className="text-sm font-medium text-soil mb-2">Due Date</h3>
+                  <p className={`text-lg font-semibold ${isOverdue ? 'text-red-600' : 'text-moss-dark'}`}>
+                    {dueDate.toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                    })}
+                    {isOverdue && ' (Overdue)'}
+                  </p>
+                </div>
+              )}
+
+              {task.recurrencePattern && (
+                <div>
+                  <h3 className="text-sm font-medium text-soil mb-2">Recurrence</h3>
+                  <p className="text-lg text-moss-dark">
+                    Every {task.recurrencePattern.frequency} {task.recurrencePattern.unit}
+                  </p>
+                </div>
+              )}
+            </>
           )}
 
           {/* Description */}

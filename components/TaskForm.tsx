@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { createCareTask, getTaskDefaults } from '@/app/actions/tasks';
 import { Button } from '@/components/ui/button';
-import type { CareTaskType } from '@/lib/db/types';
+import type { CareTaskType, TaskScheduleMode } from '@/lib/db/types';
 
 interface TaskFormProps {
   plantId: string;
@@ -32,10 +32,12 @@ export function TaskForm({ plantId, onSuccess }: TaskFormProps) {
   const [error, setError] = useState<string | null>(null);
 
   // Form state
+  const [scheduleMode, setScheduleMode] = useState<TaskScheduleMode>('recurring');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [frequency, setFrequency] = useState(1);
   const [unit, setUnit] = useState<'days' | 'weeks' | 'months'>('days');
+  const [dueDate, setDueDate] = useState<string>(''); // For one-time tasks
 
   async function handlePresetSelect(type: CareTaskType) {
     const defaults = await getTaskDefaults(type);
@@ -61,14 +63,22 @@ export function TaskForm({ plantId, onSuccess }: TaskFormProps) {
     setIsOpen(false);
     setSelectedType(null);
     setIsCustom(false);
+    setScheduleMode('recurring');
     setTitle('');
     setDescription('');
+    setDueDate('');
     setError(null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedType) return;
+
+    // Validation
+    if (scheduleMode === 'one-time' && !dueDate) {
+      setError('Please select a due date for one-time tasks');
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -79,15 +89,20 @@ export function TaskForm({ plantId, onSuccess }: TaskFormProps) {
         type: selectedType,
         title: title.trim(),
         description: description.trim() || undefined,
-        recurrencePattern: {
+        scheduleMode,
+        recurrencePattern: scheduleMode === 'recurring' ? {
           frequency,
           unit,
-        },
+        } : undefined,
+        specificDueDate: scheduleMode === 'one-time' ? new Date(dueDate) : undefined,
       });
 
       if (result.success) {
+        const modeText = scheduleMode === 'recurring' ? "You'll be reminded when it's due"
+          : scheduleMode === 'one-time' ? `Due on ${new Date(dueDate).toLocaleDateString()}`
+          : 'No schedule set';
         toast.success(`📋 ${title} task created!`, {
-          description: "You'll be reminded when it's due",
+          description: modeText,
         });
         handleCancel();
         onSuccess?.();
@@ -163,38 +178,108 @@ export function TaskForm({ plantId, onSuccess }: TaskFormProps) {
           />
         </div>
 
-        {/* Frequency */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* Schedule Mode Toggle */}
+        <div>
+          <label className="block text-sm font-medium text-soil mb-2">
+            Schedule Type <span className="text-terracotta">*</span>
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setScheduleMode('recurring')}
+              className={`flex-1 px-4 py-2 rounded-lg border-2 font-medium transition-all ${
+                scheduleMode === 'recurring'
+                  ? 'border-moss bg-moss text-white'
+                  : 'border-sage bg-white text-moss-dark hover:border-moss'
+              }`}
+            >
+              🔄 Recurring
+            </button>
+            <button
+              type="button"
+              onClick={() => setScheduleMode('one-time')}
+              className={`flex-1 px-4 py-2 rounded-lg border-2 font-medium transition-all ${
+                scheduleMode === 'one-time'
+                  ? 'border-moss bg-moss text-white'
+                  : 'border-sage bg-white text-moss-dark hover:border-moss'
+              }`}
+            >
+              📅 One-time
+            </button>
+            <button
+              type="button"
+              onClick={() => setScheduleMode('unscheduled')}
+              className={`flex-1 px-4 py-2 rounded-lg border-2 font-medium transition-all ${
+                scheduleMode === 'unscheduled'
+                  ? 'border-moss bg-moss text-white'
+                  : 'border-sage bg-white text-moss-dark hover:border-moss'
+              }`}
+            >
+              ⚪ Unscheduled
+            </button>
+          </div>
+        </div>
+
+        {/* Conditional Fields Based on Schedule Mode */}
+        {scheduleMode === 'recurring' && (
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="frequency" className="block text-sm font-medium text-soil mb-1">
+                Every
+              </label>
+              <input
+                type="number"
+                id="frequency"
+                min="1"
+                value={frequency}
+                onChange={(e) => setFrequency(parseInt(e.target.value) || 1)}
+                required
+                className="w-full rounded-md border-2 border-sage bg-white px-3 py-2 text-moss-dark focus:border-moss focus:outline-none"
+              />
+            </div>
+            <div>
+              <label htmlFor="unit" className="block text-sm font-medium text-soil mb-1">
+                Period
+              </label>
+              <select
+                id="unit"
+                value={unit}
+                onChange={(e) => setUnit(e.target.value as any)}
+                className="w-full rounded-md border-2 border-sage bg-white px-3 py-2 text-moss-dark focus:border-moss focus:outline-none"
+              >
+                <option value="days">Days</option>
+                <option value="weeks">Weeks</option>
+                <option value="months">Months</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {scheduleMode === 'one-time' && (
           <div>
-            <label htmlFor="frequency" className="block text-sm font-medium text-soil mb-1">
-              Every
+            <label htmlFor="dueDate" className="block text-sm font-medium text-soil mb-1">
+              Due Date <span className="text-terracotta">*</span>
             </label>
             <input
-              type="number"
-              id="frequency"
-              min="1"
-              value={frequency}
-              onChange={(e) => setFrequency(parseInt(e.target.value) || 1)}
+              type="date"
+              id="dueDate"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
               required
+              min={new Date().toISOString().split('T')[0]}
               className="w-full rounded-md border-2 border-sage bg-white px-3 py-2 text-moss-dark focus:border-moss focus:outline-none"
             />
           </div>
-          <div>
-            <label htmlFor="unit" className="block text-sm font-medium text-soil mb-1">
-              Period
-            </label>
-            <select
-              id="unit"
-              value={unit}
-              onChange={(e) => setUnit(e.target.value as any)}
-              className="w-full rounded-md border-2 border-sage bg-white px-3 py-2 text-moss-dark focus:border-moss focus:outline-none"
-            >
-              <option value="days">Days</option>
-              <option value="weeks">Weeks</option>
-              <option value="months">Months</option>
-            </select>
+        )}
+
+        {scheduleMode === 'unscheduled' && (
+          <div className="bg-sage/20 rounded-lg p-4 border-2 border-sage">
+            <p className="text-sm text-moss-dark">
+              This task will have no scheduled due date. It will appear in the "Unscheduled" column
+              on your dashboard. You can manually complete it whenever needed.
+            </p>
           </div>
-        </div>
+        )}
 
         {/* Description */}
         <div>

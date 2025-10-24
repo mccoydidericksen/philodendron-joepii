@@ -2,14 +2,16 @@ import { auth, currentUser } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { DemoBanner } from '@/components/DemoBanner';
-import { getPlantsCount, getDistinctSpeciesTypes, getFavoritePlants } from '@/app/actions/plants';
+import { getPlantsCount, getDistinctSpeciesTypes, getFavoritePlants, getPlants, getPlantCountsBySpeciesType } from '@/app/actions/plants';
 import { getUpcomingTasks, getOverdueTasks } from '@/app/actions/tasks';
 import { DashboardKanban } from '@/components/DashboardKanban';
 import { DashboardClient } from '@/components/DashboardClient';
 import { FavoritePlantsSection } from '@/components/FavoritePlantsSection';
+import { PlantsBySpeciesChart } from '@/components/PlantsBySpeciesChart';
 import { NotificationBell } from '@/components/NotificationBell';
 import { Button } from '@/components/ui/button';
 import { UserButton } from '@clerk/nextjs';
+import { TypingText } from '@/components/ui/TypingText';
 
 export default async function DashboardPage() {
   const { userId } = await auth();
@@ -25,28 +27,37 @@ export default async function DashboardPage() {
 
   // Fetch plant count
   const plantsResult = await getPlantsCount();
-  const plantsCount = plantsResult.success ? plantsResult.data : 0;
+  const plantsCount = (plantsResult.success && plantsResult.data !== undefined) ? plantsResult.data : 0;
 
   // Fetch favorite plants
   const favoritePlantsResult = await getFavoritePlants();
-  const favoritePlants = favoritePlantsResult.success ? favoritePlantsResult.data : [];
+  const favoritePlants = (favoritePlantsResult.success && favoritePlantsResult.data) ? favoritePlantsResult.data : [];
+
+  // Fetch all plants for the selector modal
+  const allPlantsResult = await getPlants(false);
+  const allPlants = (allPlantsResult.success && allPlantsResult.data) ? allPlantsResult.data : [];
 
   // Fetch species types for filter
   const speciesTypesResult = await getDistinctSpeciesTypes();
-  const speciesTypes = speciesTypesResult.success ? speciesTypesResult.data : [];
+  const speciesTypes = (speciesTypesResult.success && speciesTypesResult.data) ? speciesTypesResult.data : [];
+
+  // Fetch plant counts by species type for chart
+  const plantCountsResult = await getPlantCountsBySpeciesType();
+  const plantCounts = (plantCountsResult.success && plantCountsResult.data) ? plantCountsResult.data : [];
 
   // Fetch task data
   const upcomingResult = await getUpcomingTasks(7);
   const overdueResult = await getOverdueTasks();
 
-  const upcomingTasks = upcomingResult.success ? upcomingResult.data : [];
-  const overdueTasks = overdueResult.success ? overdueResult.data : [];
+  const upcomingTasks = (upcomingResult.success && upcomingResult.data) ? upcomingResult.data : [];
+  const overdueTasks = (overdueResult.success && overdueResult.data) ? overdueResult.data : [];
 
   // All tasks for kanban (overdue + upcoming within 7 days)
-  const allTasks = [...overdueTasks, ...upcomingTasks];
+  const allTasks = [...(overdueTasks || []), ...(upcomingTasks || [])];
 
   // Calculate task counts
-  const tasksNeedingAttention = overdueTasks.length + upcomingTasks.filter(task => {
+  const tasksNeedingAttention = (overdueTasks || []).length + (upcomingTasks || []).filter(task => {
+    if (!task.nextDueDate) return false;
     const dueDate = new Date(task.nextDueDate);
     const diffDays = Math.ceil((dueDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
     return diffDays <= 2; // Due within 2 days
@@ -71,9 +82,14 @@ export default async function DashboardPage() {
           </div>
 
           <header className="mb-8">
-            <h1 className="text-4xl font-bold text-moss-dark">Dashboard</h1>
-            <p className="mt-2 text-soil">
-              Welcome back, {user?.firstName || user?.emailAddresses[0].emailAddress}! 🌱
+            <h1 className="text-3xl font-bold text-moss-dark mb-1" style={{ fontFamily: 'var(--font-fredoka)' }}>
+              plantrot
+            </h1>
+            <p className="text-sage-dark text-sm">
+              <TypingText
+                text={`welcome back, ${(user?.firstName || user?.emailAddresses[0].emailAddress.split('@')[0])?.toLowerCase()}! here's your plant care at a glance.`}
+                speed={40}
+              />
             </p>
           </header>
 
@@ -106,7 +122,12 @@ export default async function DashboardPage() {
 
           {/* Favorite Plants Section */}
           {plantsCount > 0 && (
-            <FavoritePlantsSection favoritePlants={favoritePlants} />
+            <FavoritePlantsSection favoritePlants={favoritePlants} allPlants={allPlants} />
+          )}
+
+          {/* Plants by Species Chart */}
+          {plantsCount > 0 && (
+            <PlantsBySpeciesChart data={plantCounts} />
           )}
 
           {plantsCount === 0 ? (
@@ -144,28 +165,6 @@ export default async function DashboardPage() {
             <>
               {/* Kanban Board with Filter */}
               <DashboardClient speciesTypes={speciesTypes} initialTasks={allTasks} />
-
-              {/* Quick Actions */}
-              <div className="mt-8 rounded-lg border-2 border-sage bg-card-bg p-6">
-                <h2 className="text-2xl font-semibold text-moss-dark">Quick Actions</h2>
-                <div className="mt-4 flex flex-wrap gap-4">
-                  <Link href="/plants/new">
-                    <Button className="bg-moss hover:bg-moss-light text-white">
-                      + Add New Plant
-                    </Button>
-                  </Link>
-                  <Link href="/plants">
-                    <Button variant="outline">
-                      View All Plants
-                    </Button>
-                  </Link>
-                  <Link href="/settings">
-                    <Button variant="outline">
-                      ⚙️ Notification Settings
-                    </Button>
-                  </Link>
-                </div>
-              </div>
             </>
           )}
         </div>

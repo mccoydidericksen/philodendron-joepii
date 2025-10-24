@@ -66,6 +66,20 @@ export function PlantForm({ plant, mode }: PlantFormProps) {
         ? parseInt(formData.get('purchasePriceCents') as string) * 100
         : null,
       notes: formData.get('notes') as string || null,
+
+      // Last care dates
+      lastWateredAt: formData.get('lastWateredAt')
+        ? new Date(formData.get('lastWateredAt') as string)
+        : null,
+      lastFertilizedAt: formData.get('lastFertilizedAt')
+        ? new Date(formData.get('lastFertilizedAt') as string)
+        : null,
+      lastMistedAt: formData.get('lastMistedAt')
+        ? new Date(formData.get('lastMistedAt') as string)
+        : null,
+      lastRepottedAt: formData.get('lastRepottedAt')
+        ? new Date(formData.get('lastRepottedAt') as string)
+        : null,
     };
 
     try {
@@ -495,6 +509,73 @@ export function PlantForm({ plant, mode }: PlantFormProps) {
           </div>
         </div>
       </section>
+
+      {/* Last Care Dates (Only show on create) */}
+      {mode === 'create' && (
+        <section className="rounded-lg border-2 border-sage bg-card-bg p-6">
+          <h2 className="text-2xl font-semibold text-moss-dark mb-2">
+            Last Care Dates (Optional)
+          </h2>
+          <p className="text-sm text-soil mb-4">
+            If you've already been caring for this plant, enter when you last completed these tasks.
+            We'll automatically create care tasks and calculate when they're next due based on default schedules.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="lastWateredAt" className="block text-sm font-medium text-soil mb-1">
+                Last Watered
+              </label>
+              <input
+                type="date"
+                id="lastWateredAt"
+                name="lastWateredAt"
+                className="w-full rounded-md border-2 border-sage bg-white px-3 py-2 text-moss-dark focus:border-moss focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-soil">Next due in 6 days</p>
+            </div>
+
+            <div>
+              <label htmlFor="lastFertilizedAt" className="block text-sm font-medium text-soil mb-1">
+                Last Fertilized
+              </label>
+              <input
+                type="date"
+                id="lastFertilizedAt"
+                name="lastFertilizedAt"
+                className="w-full rounded-md border-2 border-sage bg-white px-3 py-2 text-moss-dark focus:border-moss focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-soil">Next due in 12 days</p>
+            </div>
+
+            <div>
+              <label htmlFor="lastMistedAt" className="block text-sm font-medium text-soil mb-1">
+                Last Misted
+              </label>
+              <input
+                type="date"
+                id="lastMistedAt"
+                name="lastMistedAt"
+                className="w-full rounded-md border-2 border-sage bg-white px-3 py-2 text-moss-dark focus:border-moss focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-soil">Next due in 3 days</p>
+            </div>
+
+            <div>
+              <label htmlFor="lastRepottedAt" className="block text-sm font-medium text-soil mb-1">
+                Last Repotted
+              </label>
+              <input
+                type="date"
+                id="lastRepottedAt"
+                name="lastRepottedAt"
+                className="w-full rounded-md border-2 border-sage bg-white px-3 py-2 text-moss-dark focus:border-moss focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-soil">Next check in 6 months</p>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Form Actions */}
       <div className="flex gap-4 justify-end">

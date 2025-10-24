@@ -1,83 +1,17 @@
 'use server';
 
-import { auth } from '@clerk/nextjs/server';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/lib/db';
 import { careTasks, taskCompletions, plants } from '@/lib/db/schema';
 import { eq, and, desc, asc, lte, gte } from 'drizzle-orm';
-import type { CareTaskType, RecurrencePattern } from '@/lib/db/types';
-
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-async function getUserId() {
-  const { userId } = await auth();
-  if (!userId) {
-    throw new Error('Unauthorized');
-  }
-  return userId;
-}
-
-async function getDbUserId(clerkUserId: string) {
-  const user = await db.query.users.findFirst({
-    where: (users, { eq }) => eq(users.clerkUserId, clerkUserId),
-  });
-
-  if (!user) {
-    throw new Error('User not found in database');
-  }
-
-  return user.id;
-}
-
-async function verifyPlantOwnership(plantId: string, userId: string) {
-  const plant = await db.query.plants.findFirst({
-    where: and(
-      eq(plants.id, plantId),
-      eq(plants.userId, userId)
-    ),
-  });
-
-  if (!plant) {
-    throw new Error('Plant not found or unauthorized');
-  }
-
-  return plant;
-}
+import type { CareTaskType, RecurrencePattern, TaskScheduleMode } from '@/lib/db/types';
+import { calculateNextDueDate } from '@/lib/utils/date-helpers';
+import { getUserId, getDbUserId, verifyPlantOwnership } from '@/lib/auth/helpers';
+import { revalidateCommonPaths, revalidatePlantPaths, createSuccessResponse, createSuccessResponseNoData, createErrorResponse } from '@/lib/utils/server-helpers';
+import { TASK_DEFAULTS } from '@/lib/constants/task-defaults';
 
 export async function getTaskDefaults(taskType: CareTaskType): Promise<{ frequency: number; unit: 'days' | 'weeks' | 'months'; title: string }> {
-  const defaults: Record<CareTaskType, { frequency: number; unit: 'days' | 'weeks' | 'months'; title: string }> = {
-    water: { frequency: 6, unit: 'days', title: 'Water' },
-    fertilize: { frequency: 12, unit: 'days', title: 'Fertilize' },
-    mist: { frequency: 3, unit: 'days', title: 'Mist' },
-    repot_check: { frequency: 6, unit: 'months', title: 'Check for Repotting' },
-    water_fertilize: { frequency: 12, unit: 'days', title: 'Water & Fertilize' },
-    prune: { frequency: 30, unit: 'days', title: 'Prune' },
-    rotate: { frequency: 7, unit: 'days', title: 'Rotate' },
-    custom: { frequency: 7, unit: 'days', title: 'Custom Task' },
-  };
-
-  return defaults[taskType] || defaults.custom;
-}
-
-// Internal helper function (not exported to avoid Server Action requirement)
-function calculateNextDueDate(fromDate: Date, pattern: RecurrencePattern): Date {
-  const next = new Date(fromDate);
-
-  switch (pattern.unit) {
-    case 'days':
-      next.setDate(next.getDate() + pattern.frequency);
-      break;
-    case 'weeks':
-      next.setDate(next.getDate() + (pattern.frequency * 7));
-      break;
-    case 'months':
-      next.setMonth(next.getMonth() + pattern.frequency);
-      break;
-  }
-
-  return next;
+  return TASK_DEFAULTS[taskType] || TASK_DEFAULTS.custom;
 }
 
 // ============================================
@@ -89,8 +23,11 @@ export async function createCareTask(data: {
   type: CareTaskType;
   title: string;
   description?: string;
-  recurrencePattern: RecurrencePattern;
+  scheduleMode: TaskScheduleMode;
+  recurrencePattern?: RecurrencePattern;
+  specificDueDate?: Date;
   startDate?: Date;
+  assignedUserId?: string | null;
 }) {
   try {
     const clerkUserId = await getUserId();
@@ -99,8 +36,40 @@ export async function createCareTask(data: {
     // Verify plant ownership
     await verifyPlantOwnership(data.plantId, dbUserId);
 
-    const startDate = data.startDate || new Date();
-    const nextDueDate = calculateNextDueDate(startDate, data.recurrencePattern);
+    // Determine isRecurring and nextDueDate based on scheduleMode
+    let isRecurring = false;
+    let nextDueDate: Date | null = null;
+    let recurrencePattern = null;
+
+    if (data.scheduleMode === 'recurring') {
+      if (!data.recurrencePattern) {
+        throw new Error('Recurrence pattern is required for recurring tasks');
+      }
+      isRecurring = true;
+      recurrencePattern = data.recurrencePattern;
+      const startDate = data.startDate || new Date();
+      nextDueDate = calculateNextDueDate(startDate, data.recurrencePattern);
+    } else if (data.scheduleMode === 'one-time') {
+      if (!data.specificDueDate) {
+        throw new Error('Due date is required for one-time tasks');
+      }
+      isRecurring = false;
+      nextDueDate = data.specificDueDate;
+    } else {
+      // unscheduled
+      isRecurring = false;
+      nextDueDate = null;
+    }
+
+    // Get plant to check assignment
+    const plant = await db.query.plants.findFirst({
+      where: eq(plants.id, data.plantId),
+    });
+
+    // Default assignedUserId to plant's assignedUserId if not specified
+    const assignedUserId = data.assignedUserId !== undefined
+      ? data.assignedUserId
+      : (plant?.assignedUserId || dbUserId);
 
     const [newTask] = await db
       .insert(careTasks)
@@ -110,25 +79,20 @@ export async function createCareTask(data: {
         type: data.type,
         title: data.title,
         description: data.description || null,
-        isRecurring: true,
-        recurrencePattern: data.recurrencePattern,
-        nextDueDate: nextDueDate,
+        isRecurring,
+        recurrencePattern,
+        nextDueDate,
+        assignedUserId: assignedUserId,
+        createdByUserId: dbUserId,
       })
       .returning();
 
-    revalidatePath(`/plants/${data.plantId}`);
-    revalidatePath('/dashboard');
+    revalidatePlantPaths(data.plantId);
 
-    return {
-      success: true,
-      data: newTask,
-    };
+    return createSuccessResponse(newTask);
   } catch (error) {
     console.error('Error creating task:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to create task',
-    };
+    return createErrorResponse(error, 'Failed to create task');
   }
 }
 
@@ -150,10 +114,7 @@ export async function completeCareTask(taskId: string, notes?: string) {
     });
 
     if (!task) {
-      return {
-        success: false,
-        error: 'Task not found or unauthorized',
-      };
+      return createErrorResponse('Task not found or unauthorized');
     }
 
     const completedAt = new Date();
@@ -169,33 +130,64 @@ export async function completeCareTask(taskId: string, notes?: string) {
         skipped: false,
       });
 
-    // Calculate next due date
-    const nextDueDate = task.recurrencePattern
-      ? calculateNextDueDate(completedAt, task.recurrencePattern)
-      : null;
-
-    // Update task
-    await db
-      .update(careTasks)
-      .set({
-        lastCompletedAt: completedAt,
-        nextDueDate: nextDueDate || task.nextDueDate,
-        updatedAt: new Date(),
-      })
-      .where(eq(careTasks.id, taskId));
-
-    revalidatePath(`/plants/${task.plantId}`);
-    revalidatePath('/dashboard');
-
-    return {
-      success: true,
+    // Update plant's last care date based on task type
+    const taskTypeToCareField: Record<string, string | string[]> = {
+      'water': 'lastWateredAt',
+      'fertilize': 'lastFertilizedAt',
+      'mist': 'lastMistedAt',
+      'repot_check': 'lastRepottedAt',
+      'water_fertilize': ['lastWateredAt', 'lastFertilizedAt'],
     };
+
+    const fieldsToUpdate = taskTypeToCareField[task.type];
+    if (fieldsToUpdate) {
+      const updateData = Array.isArray(fieldsToUpdate)
+        ? Object.fromEntries(fieldsToUpdate.map(f => [f, completedAt]))
+        : { [fieldsToUpdate]: completedAt };
+
+      await db
+        .update(plants)
+        .set({
+          ...updateData,
+          updatedAt: new Date(),
+        })
+        .where(eq(plants.id, task.plantId));
+    }
+
+    // Handle task based on type (recurring, one-time, or unscheduled)
+    if (task.isRecurring && task.recurrencePattern) {
+      // Recurring task: calculate next due date and update
+      const nextDueDate = calculateNextDueDate(completedAt, task.recurrencePattern);
+      await db
+        .update(careTasks)
+        .set({
+          lastCompletedAt: completedAt,
+          nextDueDate: nextDueDate,
+          updatedAt: new Date(),
+        })
+        .where(eq(careTasks.id, taskId));
+    } else if (!task.isRecurring && task.nextDueDate) {
+      // One-time task with a due date: delete after completion
+      await db
+        .delete(careTasks)
+        .where(eq(careTasks.id, taskId));
+    } else {
+      // Unscheduled task (no due date): just update lastCompletedAt
+      await db
+        .update(careTasks)
+        .set({
+          lastCompletedAt: completedAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(careTasks.id, taskId));
+    }
+
+    revalidatePlantPaths(task.plantId);
+
+    return createSuccessResponseNoData();
   } catch (error) {
     console.error('Error completing task:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to complete task',
-    };
+    return createErrorResponse(error, 'Failed to complete task');
   }
 }
 
@@ -208,7 +200,10 @@ export async function updateCareTask(
   data: {
     title?: string;
     description?: string;
+    scheduleMode?: TaskScheduleMode;
     recurrencePattern?: RecurrencePattern;
+    specificDueDate?: Date;
+    assignedUserId?: string | null;
   }
 ) {
   try {
@@ -224,13 +219,11 @@ export async function updateCareTask(
     });
 
     if (!existingTask) {
-      return {
-        success: false,
-        error: 'Task not found or unauthorized',
-      };
+      return createErrorResponse('Task not found or unauthorized');
     }
 
     const updateData: any = {
+      lastModifiedByUserId: dbUserId,
       updatedAt: new Date(),
     };
 
@@ -242,9 +235,37 @@ export async function updateCareTask(
       updateData.description = data.description;
     }
 
-    if (data.recurrencePattern) {
+    if (data.assignedUserId !== undefined) {
+      updateData.assignedUserId = data.assignedUserId;
+    }
+
+    // Handle schedule mode changes
+    if (data.scheduleMode) {
+      if (data.scheduleMode === 'recurring') {
+        if (!data.recurrencePattern) {
+          throw new Error('Recurrence pattern is required for recurring tasks');
+        }
+        updateData.isRecurring = true;
+        updateData.recurrencePattern = data.recurrencePattern;
+        // Recalculate next due date with new pattern
+        const baseDate = existingTask.lastCompletedAt || existingTask.createdAt;
+        updateData.nextDueDate = calculateNextDueDate(baseDate, data.recurrencePattern);
+      } else if (data.scheduleMode === 'one-time') {
+        if (!data.specificDueDate) {
+          throw new Error('Due date is required for one-time tasks');
+        }
+        updateData.isRecurring = false;
+        updateData.recurrencePattern = null;
+        updateData.nextDueDate = data.specificDueDate;
+      } else {
+        // unscheduled
+        updateData.isRecurring = false;
+        updateData.recurrencePattern = null;
+        updateData.nextDueDate = null;
+      }
+    } else if (data.recurrencePattern) {
+      // Legacy support: if only recurrencePattern is provided
       updateData.recurrencePattern = data.recurrencePattern;
-      // Recalculate next due date with new pattern
       const baseDate = existingTask.lastCompletedAt || existingTask.createdAt;
       updateData.nextDueDate = calculateNextDueDate(baseDate, data.recurrencePattern);
     }
@@ -258,16 +279,10 @@ export async function updateCareTask(
     revalidatePath(`/plants/${existingTask.plantId}`);
     revalidatePath('/dashboard');
 
-    return {
-      success: true,
-      data: updatedTask,
-    };
+    return createSuccessResponse(updatedTask);
   } catch (error) {
     console.error('Error updating task:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to update task',
-    };
+    return createErrorResponse(error, 'Failed to update task');
   }
 }
 
@@ -289,10 +304,7 @@ export async function deleteCareTask(taskId: string) {
     });
 
     if (!existingTask) {
-      return {
-        success: false,
-        error: 'Task not found or unauthorized',
-      };
+      return createErrorResponse('Task not found or unauthorized');
     }
 
     // Delete task (cascade will handle completions)
@@ -333,9 +345,13 @@ export async function skipTask(taskId: string, daysToSkip: number) {
     });
 
     if (!task) {
+      return createErrorResponse('Task not found or unauthorized');
+    }
+
+    if (!task.nextDueDate) {
       return {
         success: false,
-        error: 'Task not found or unauthorized',
+        error: 'Cannot skip unscheduled task',
       };
     }
 
@@ -352,8 +368,7 @@ export async function skipTask(taskId: string, daysToSkip: number) {
       })
       .where(eq(careTasks.id, taskId));
 
-    revalidatePath(`/plants/${task.plantId}`);
-    revalidatePath('/dashboard');
+    revalidatePlantPaths(task.plantId);
 
     return {
       success: true,
@@ -386,10 +401,7 @@ export async function updateTaskDueDate(taskId: string, newDueDate: Date) {
     });
 
     if (!existingTask) {
-      return {
-        success: false,
-        error: 'Task not found or unauthorized',
-      };
+      return createErrorResponse('Task not found or unauthorized');
     }
 
     // Update task due date
@@ -466,11 +478,19 @@ export async function getUpcomingTasks(daysAhead: number = 7, speciesTypeFilter?
     const tasks = await db.query.careTasks.findMany({
       where: and(
         eq(careTasks.userId, dbUserId),
+        gte(careTasks.nextDueDate, today),
         lte(careTasks.nextDueDate, futureDate)
       ),
       orderBy: [asc(careTasks.nextDueDate)],
       with: {
-        plant: true,
+        plant: {
+          columns: {
+            id: true,
+            name: true,
+            primaryPhotoUrl: true,
+            speciesType: true,
+          },
+        },
       },
     });
 
@@ -506,7 +526,14 @@ export async function getOverdueTasks(speciesTypeFilter?: string) {
       ),
       orderBy: [asc(careTasks.nextDueDate)],
       with: {
-        plant: true,
+        plant: {
+          columns: {
+            id: true,
+            name: true,
+            primaryPhotoUrl: true,
+            speciesType: true,
+          },
+        },
       },
     });
 
@@ -546,10 +573,7 @@ export async function convertTaskToUnscheduled(taskId: string) {
     });
 
     if (!existingTask) {
-      return {
-        success: false,
-        error: 'Task not found or unauthorized',
-      };
+      return createErrorResponse('Task not found or unauthorized');
     }
 
     // Update task to be non-recurring
@@ -574,6 +598,173 @@ export async function convertTaskToUnscheduled(taskId: string) {
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to convert task',
+    };
+  }
+}
+
+// ============================================
+// TASK ASSIGNMENT
+// ============================================
+
+export async function assignTaskToUser(taskId: string, assignedUserId: string | null) {
+  try {
+    const clerkUserId = await getUserId();
+    const dbUserId = await getDbUserId(clerkUserId);
+
+    // Verify task ownership or group membership
+    const task = await db.query.careTasks.findFirst({
+      where: eq(careTasks.id, taskId),
+      with: {
+        plant: {
+          with: {
+            plantGroup: true,
+          },
+        },
+      },
+    });
+
+    if (!task) {
+      return {
+        success: false,
+        error: 'Task not found',
+      };
+    }
+
+    // Check authorization
+    if (task.userId !== dbUserId && !task.plant.plantGroup) {
+      return {
+        success: false,
+        error: 'Unauthorized',
+      };
+    }
+
+    const [updatedTask] = await db
+      .update(careTasks)
+      .set({
+        assignedUserId,
+        lastModifiedByUserId: dbUserId,
+        updatedAt: new Date(),
+      })
+      .where(eq(careTasks.id, taskId))
+      .returning();
+
+    revalidatePlantPaths(task.plantId);
+
+    return {
+      success: true,
+      data: updatedTask,
+    };
+  } catch (error) {
+    console.error('Error assigning task:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to assign task',
+    };
+  }
+}
+
+export async function getMyAssignedTasks(groupId?: string) {
+  try {
+    const clerkUserId = await getUserId();
+    const dbUserId = await getDbUserId(clerkUserId);
+
+    let whereConditions = eq(careTasks.assignedUserId, dbUserId);
+
+    if (groupId) {
+      // Filter by group
+      const group = await db.query.plantGroups.findFirst({
+        where: (plantGroups, { eq }) => eq(plantGroups.clerkOrgId, groupId),
+      });
+
+      if (group) {
+        const tasks = await db.query.careTasks.findMany({
+          where: whereConditions,
+          orderBy: [asc(careTasks.nextDueDate)],
+          with: {
+            plant: {
+              with: {
+                media: {
+                  where: (plantMedia, { eq }) => eq(plantMedia.isPrimary, true),
+                  limit: 1,
+                },
+              },
+            },
+          },
+        });
+
+        return {
+          success: true,
+          data: tasks.filter((t) => t.plant?.plantGroupId === group.id),
+        };
+      }
+    }
+
+    const tasks = await db.query.careTasks.findMany({
+      where: whereConditions,
+      orderBy: [asc(careTasks.nextDueDate)],
+      with: {
+        plant: {
+          with: {
+            media: {
+              where: (plantMedia, { eq }) => eq(plantMedia.isPrimary, true),
+              limit: 1,
+            },
+            plantGroup: true,
+          },
+        },
+      },
+    });
+
+    return {
+      success: true,
+      data: tasks,
+    };
+  } catch (error) {
+    console.error('Error fetching assigned tasks:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch assigned tasks',
+    };
+  }
+}
+
+export async function getTaskHistory(taskId: string) {
+  try {
+    const clerkUserId = await getUserId();
+    const dbUserId = await getDbUserId(clerkUserId);
+
+    const task = await db.query.careTasks.findFirst({
+      where: eq(careTasks.id, taskId),
+      with: {
+        createdBy: true,
+        lastModifiedBy: true,
+        assignedUser: true,
+        completions: {
+          orderBy: [desc(taskCompletions.completedAt)],
+          with: {
+            user: true,
+          },
+          limit: 10,
+        },
+      },
+    });
+
+    if (!task) {
+      return {
+        success: false,
+        error: 'Task not found',
+      };
+    }
+
+    return {
+      success: true,
+      data: task,
+    };
+  } catch (error) {
+    console.error('Error fetching task history:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch task history',
     };
   }
 }

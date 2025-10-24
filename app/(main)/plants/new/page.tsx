@@ -1,33 +1,45 @@
-import { auth, currentUser } from '@clerk/nextjs/server';
-import { redirect } from 'next/navigation';
-import { DemoBanner } from '@/components/DemoBanner';
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { PlantForm } from '@/components/PlantForm';
+import { BulkUploadModal } from '@/components/BulkUploadModal';
+import { Button } from '@/components/ui/button';
 
-export default async function NewPlantPage() {
-  const { userId } = await auth();
-
-  if (!userId) {
-    redirect('/sign-in');
-  }
-
-  const user = await currentUser();
-  const isDemoAccount = user?.publicMetadata?.isDemoAccount === true;
+export default function NewPlantPage() {
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const router = useRouter();
 
   return (
     <>
-      {isDemoAccount && <DemoBanner />}
       <div className="min-h-screen bg-cream p-8">
         <div className="mx-auto max-w-4xl">
           <header className="mb-8">
-            <h1 className="text-4xl font-bold text-moss-dark">Add New Plant</h1>
-            <p className="mt-2 text-soil">
-              Fill in the details about your new plant
-            </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-moss-dark mb-2" style={{ fontFamily: 'var(--font-fredoka)' }}>Add New Plant</h1>
+                <p className="text-sage-dark text-sm">
+                  Fill in the details about your new plant
+                </p>
+              </div>
+              <Button
+                onClick={() => setShowBulkUpload(true)}
+                variant="outline"
+                className="whitespace-nowrap"
+              >
+                📤 Bulk Upload
+              </Button>
+            </div>
           </header>
 
           <PlantForm mode="create" />
         </div>
       </div>
+
+      <BulkUploadModal
+        isOpen={showBulkUpload}
+        onClose={() => setShowBulkUpload(false)}
+      />
     </>
   );
 }

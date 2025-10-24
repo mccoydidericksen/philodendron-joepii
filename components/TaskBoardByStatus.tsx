@@ -30,8 +30,8 @@ interface TaskBoardByStatusProps {
 type TaskStatus = 'overdue' | 'due-soon' | 'upcoming' | 'unscheduled';
 
 function getTaskStatus(task: CareTask): TaskStatus {
-  // Check if task is unscheduled (not recurring)
-  if (!task.isRecurring) return 'unscheduled';
+  // Check if task is unscheduled (no due date or not recurring with no due date)
+  if (!task.nextDueDate) return 'unscheduled';
 
   const now = new Date();
   const due = new Date(task.nextDueDate);
@@ -88,7 +88,13 @@ export function TaskBoardByStatus({ tasks }: TaskBoardByStatusProps) {
   const tasksByStatus = STATUS_COLUMNS.map(({ id }) => {
     const statusTasks = tasks
       .filter((task) => getTaskStatus(task) === id)
-      .sort((a, b) => new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime());
+      .sort((a, b) => {
+        // Handle null dates - push them to the end
+        if (!a.nextDueDate && !b.nextDueDate) return 0;
+        if (!a.nextDueDate) return 1;
+        if (!b.nextDueDate) return -1;
+        return new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime();
+      });
 
     return {
       status: id as TaskStatus,

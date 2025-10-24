@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Sprout, User } from 'lucide-react';
+import { Home, Sprout, User, Users, ClipboardCheck } from 'lucide-react';
 
 const tabs = [
   {
@@ -14,6 +14,16 @@ const tabs = [
     name: 'Plants',
     href: '/plants',
     icon: Sprout,
+  },
+  {
+    name: 'Chores',
+    href: '/chores',
+    icon: ClipboardCheck,
+  },
+  {
+    name: 'Groups',
+    href: '/groups',
+    icon: Users,
   },
   {
     name: 'Profile',

@@ -8,11 +8,11 @@ import type { NotificationType, NotificationChannel } from '@/lib/db/types';
 /**
  * Check if current time is within user's quiet hours
  */
-export function isWithinQuietHours(
+export async function isWithinQuietHours(
   quietHoursStart: number,
   quietHoursEnd: number,
   currentHour: number = new Date().getHours()
-): boolean {
+): Promise<boolean> {
   // If quiet hours span midnight (e.g., 21:00 to 9:00)
   if (quietHoursStart > quietHoursEnd) {
     return currentHour >= quietHoursStart || currentHour < quietHoursEnd;
@@ -70,7 +70,7 @@ export async function shouldSendNotification(
     // Check quiet hours (only for SMS and email, not in-app)
     if (channel !== 'in_app') {
       const currentHour = new Date().getHours();
-      const inQuietHours = isWithinQuietHours(
+      const inQuietHours = await isWithinQuietHours(
         prefs.quietHoursStart || 21,
         prefs.quietHoursEnd || 9,
         currentHour
@@ -318,6 +318,9 @@ export async function findTasksNeedingNotification(): Promise<Array<{
 
       // Check if we've already sent a notification for each task recently
       for (const task of tasks) {
+        // Skip tasks without due dates (should already be filtered, but be safe)
+        if (!task.nextDueDate) continue;
+
         const recentNotifications = await db
           .select()
           .from(notifications)

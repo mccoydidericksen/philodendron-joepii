@@ -60,6 +60,9 @@ export function DashboardTaskCard({ task }: DashboardTaskCardProps) {
   const router = useRouter();
   const [isCompleting, setIsCompleting] = useState(false);
 
+  // Don't render card if task has no due date
+  if (!task.nextDueDate) return null;
+
   const status = getTaskStatus(task.nextDueDate);
   const statusColors = {
     'overdue': 'border-red-300 bg-red-50',

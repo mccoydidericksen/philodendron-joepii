@@ -74,6 +74,12 @@ export const plants = pgTable("plants", {
   // Media
   primaryPhotoUrl: text("primary_photo_url"),
 
+  // Last care dates (for auto-task generation and tracking)
+  lastWateredAt: timestamp("last_watered_at", { withTimezone: true }),
+  lastFertilizedAt: timestamp("last_fertilized_at", { withTimezone: true }),
+  lastMistedAt: timestamp("last_misted_at", { withTimezone: true }),
+  lastRepottedAt: timestamp("last_repotted_at", { withTimezone: true }),
+
   // Legacy field (kept for backward compatibility, use plant_notes table instead)
   notes: text("notes"),
 
@@ -85,6 +91,15 @@ export const plants = pgTable("plants", {
   isArchived: boolean("is_archived").default(false).notNull(),
   isFavorite: boolean("is_favorite").default(false).notNull(),
   favoritedAt: timestamp("favorited_at", { withTimezone: true }),
+
+  // Group and assignment
+  plantGroupId: uuid("plant_group_id").references((): any => plantGroups.id, { onDelete: "set null" }),
+  assignedUserId: uuid("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
+
+  // Audit trail (createdByUserId nullable for migration, will be backfilled)
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "cascade" }),
+  lastModifiedByUserId: uuid("last_modified_by_user_id").references(() => users.id, { onDelete: "set null" }),
+
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -126,8 +141,14 @@ export const careTasks = pgTable("care_tasks", {
     unit: "days" | "weeks" | "months";
     specificDays?: number[]; // For weekly: [0-6] where 0 = Sunday
   }>(),
-  nextDueDate: timestamp("next_due_date", { withTimezone: true }).notNull(),
+  nextDueDate: timestamp("next_due_date", { withTimezone: true }), // Nullable to support unscheduled tasks
   lastCompletedAt: timestamp("last_completed_at", { withTimezone: true }),
+
+  // Assignment and audit trail (createdByUserId nullable for migration, will be backfilled)
+  assignedUserId: uuid("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "cascade" }),
+  lastModifiedByUserId: uuid("last_modified_by_user_id").references(() => users.id, { onDelete: "set null" }),
+
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -308,24 +329,52 @@ export const userNotificationPreferences = pgTable("user_notification_preference
 // ============================================
 
 export const usersRelations = relations(users, ({ one, many }) => ({
-  plants: many(plants),
-  careTasks: many(careTasks),
+  plants: many(plants, { relationName: "userPlants" }),
+  careTasks: many(careTasks, { relationName: "userCareTasks" }),
   taskCompletions: many(taskCompletions),
   plantMedia: many(plantMedia),
   plantNotes: many(plantNotes),
   plantLinks: many(plantLinks),
   notifications: many(notifications),
   notificationPreferences: one(userNotificationPreferences),
+  plantGroupMemberships: many(plantGroupMembers),
+  createdPlantGroups: many(plantGroups),
+  assignedPlants: many(plants, { relationName: "assignedPlants" }),
+  createdPlants: many(plants, { relationName: "createdPlants" }),
+  lastModifiedPlants: many(plants, { relationName: "lastModifiedPlants" }),
+  assignedCareTasks: many(careTasks, { relationName: "assignedCareTasks" }),
+  createdCareTasks: many(careTasks, { relationName: "createdCareTasks" }),
+  lastModifiedCareTasks: many(careTasks, { relationName: "lastModifiedCareTasks" }),
 }));
 
 export const plantsRelations = relations(plants, ({ one, many }) => ({
   user: one(users, {
     fields: [plants.userId],
     references: [users.id],
+    relationName: "userPlants",
   }),
   parentPlant: one(plants, {
     fields: [plants.parentPlantId],
     references: [plants.id],
+  }),
+  plantGroup: one(plantGroups, {
+    fields: [plants.plantGroupId],
+    references: [plantGroups.id],
+  }),
+  assignedUser: one(users, {
+    fields: [plants.assignedUserId],
+    references: [users.id],
+    relationName: "assignedPlants",
+  }),
+  createdBy: one(users, {
+    fields: [plants.createdByUserId],
+    references: [users.id],
+    relationName: "createdPlants",
+  }),
+  lastModifiedBy: one(users, {
+    fields: [plants.lastModifiedByUserId],
+    references: [users.id],
+    relationName: "lastModifiedPlants",
   }),
   careTasks: many(careTasks),
   media: many(plantMedia),
@@ -342,6 +391,22 @@ export const careTasksRelations = relations(careTasks, ({ one, many }) => ({
   user: one(users, {
     fields: [careTasks.userId],
     references: [users.id],
+    relationName: "userCareTasks",
+  }),
+  assignedUser: one(users, {
+    fields: [careTasks.assignedUserId],
+    references: [users.id],
+    relationName: "assignedCareTasks",
+  }),
+  createdBy: one(users, {
+    fields: [careTasks.createdByUserId],
+    references: [users.id],
+    relationName: "createdCareTasks",
+  }),
+  lastModifiedBy: one(users, {
+    fields: [careTasks.lastModifiedByUserId],
+    references: [users.id],
+    relationName: "lastModifiedCareTasks",
   }),
   completions: many(taskCompletions),
   notifications: many(notifications),
@@ -409,6 +474,68 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
 export const userNotificationPreferencesRelations = relations(userNotificationPreferences, ({ one }) => ({
   user: one(users, {
     fields: [userNotificationPreferences.userId],
+    references: [users.id],
+  }),
+}));
+
+// ============================================
+// PLANT GROUPS TABLE
+// ============================================
+
+export const plantGroupRoleEnum = pgEnum("plant_group_role", ["admin", "member"]);
+
+export const plantGroups = pgTable("plant_groups", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  clerkOrgId: text("clerk_org_id").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdByUserId: uuid("created_by_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  memberCount: integer("member_count").default(1).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ============================================
+// PLANT GROUP MEMBERS TABLE
+// ============================================
+
+export const plantGroupMembers = pgTable("plant_group_members", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  plantGroupId: uuid("plant_group_id")
+    .notNull()
+    .references(() => plantGroups.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  clerkMembershipId: text("clerk_membership_id").notNull(),
+  role: plantGroupRoleEnum("role").notNull(),
+  joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  uniqueMembership: { columns: [table.plantGroupId, table.userId], name: "unique_plant_group_membership" }
+}));
+
+// ============================================
+// PLANT GROUPS RELATIONS
+// ============================================
+
+export const plantGroupsRelations = relations(plantGroups, ({ one, many }) => ({
+  createdBy: one(users, {
+    fields: [plantGroups.createdByUserId],
+    references: [users.id],
+  }),
+  members: many(plantGroupMembers),
+  plants: many(plants),
+}));
+
+export const plantGroupMembersRelations = relations(plantGroupMembers, ({ one }) => ({
+  plantGroup: one(plantGroups, {
+    fields: [plantGroupMembers.plantGroupId],
+    references: [plantGroups.id],
+  }),
+  user: one(users, {
+    fields: [plantGroupMembers.userId],
     references: [users.id],
   }),
 }));

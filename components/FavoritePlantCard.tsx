@@ -1,12 +1,14 @@
 'use client';
 
 import Link from 'next/link';
+import { RefreshCw } from 'lucide-react';
 import { FavoriteStarButton } from './FavoriteStarButton';
 import type { Plant, CareTask, PlantMedia } from '@/lib/db/types';
 import { formatDistanceToNow, isPast, isFuture } from 'date-fns';
 
 interface FavoritePlantCardProps {
   plant: Plant & { careTasks?: CareTask[]; media?: PlantMedia[] };
+  onChangeClick?: () => void;
 }
 
 const TASK_TYPE_ICONS: Record<string, string> = {
@@ -20,17 +22,17 @@ const TASK_TYPE_ICONS: Record<string, string> = {
   custom: '📋',
 };
 
-export function FavoritePlantCard({ plant }: FavoritePlantCardProps) {
+export function FavoritePlantCard({ plant, onChangeClick }: FavoritePlantCardProps) {
   const primaryMedia = plant.media?.[0];
   const today = new Date();
 
   // Separate tasks into overdue and upcoming
   const overdueTasks = plant.careTasks?.filter(
-    (task) => isPast(new Date(task.nextDueDate)) && new Date(task.nextDueDate).toDateString() !== today.toDateString()
+    (task) => task.nextDueDate && isPast(new Date(task.nextDueDate)) && new Date(task.nextDueDate).toDateString() !== today.toDateString()
   ) || [];
 
   const upcomingTasks = plant.careTasks?.filter(
-    (task) => isFuture(new Date(task.nextDueDate)) || new Date(task.nextDueDate).toDateString() === today.toDateString()
+    (task) => task.nextDueDate && (isFuture(new Date(task.nextDueDate)) || new Date(task.nextDueDate).toDateString() === today.toDateString())
   ) || [];
 
   const formatTaskDate = (date: Date) => {
@@ -47,7 +49,7 @@ export function FavoritePlantCard({ plant }: FavoritePlantCardProps) {
       className="group rounded-lg border-2 border-sage bg-card-bg overflow-hidden transition-all hover:border-moss hover:shadow-lg flex flex-col h-full"
     >
       {/* Plant Image */}
-      <div className="relative h-48 bg-sage-light flex-shrink-0">
+      <div className="relative h-64 bg-sage-light flex-shrink-0">
         {primaryMedia?.url ? (
           <img
             src={primaryMedia.url}
@@ -64,6 +66,20 @@ export function FavoritePlantCard({ plant }: FavoritePlantCardProps) {
           plantName={plant.name}
           isFavorite={plant.isFavorite}
         />
+        {onChangeClick && (
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onChangeClick();
+            }}
+            className="absolute top-2 left-2 z-50 p-2 rounded-full bg-soil/70 hover:bg-soil/90 transition-all hover:scale-110 active:scale-95"
+            aria-label="Change favorite plant"
+            title="Change favorite"
+          >
+            <RefreshCw className="w-5 h-5 text-white" />
+          </button>
+        )}
       </div>
 
       {/* Plant Info */}
@@ -79,20 +95,6 @@ export function FavoritePlantCard({ plant }: FavoritePlantCardProps) {
           <div className="mt-3 flex items-center gap-4 text-sm">
             <span className="text-soil">📍 {plant.location}</span>
           </div>
-
-          {/* Quick Info Badges */}
-          <div className="mt-3 flex flex-wrap gap-2">
-            {plant.lightLevel && (
-              <span className="inline-flex items-center px-2 py-1 rounded-md bg-sage/30 text-xs text-moss-dark">
-                💡 {plant.lightLevel.replace('-', ' ')}
-              </span>
-            )}
-            {plant.difficultyLevel && (
-              <span className="inline-flex items-center px-2 py-1 rounded-md bg-sage/30 text-xs text-moss-dark">
-                🎯 {plant.difficultyLevel}
-              </span>
-            )}
-          </div>
         </div>
 
         {/* Tasks Footer */}
@@ -101,38 +103,47 @@ export function FavoritePlantCard({ plant }: FavoritePlantCardProps) {
             <h4 className="text-xs font-semibold text-moss-dark mb-2 uppercase">
               Upcoming Tasks
             </h4>
-            <div className="overflow-y-auto max-h-32 space-y-2">
-              {/* Overdue tasks first */}
-              {overdueTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="flex items-start gap-2 text-sm text-terracotta font-semibold"
-                >
-                  <span className="flex-shrink-0">{TASK_TYPE_ICONS[task.type] || '📋'}</span>
-                  <div className="flex-grow min-w-0">
-                    <div className="truncate">{task.title}</div>
-                    <div className="text-xs">
-                      {formatTaskDate(new Date(task.nextDueDate))}
+            <div className="overflow-y-auto max-h-16 space-y-2">
+              {/* Overdue tasks first - show only first one */}
+              {overdueTasks.length > 0 ? (
+                (() => {
+                  const task = overdueTasks[0];
+                  if (!task.nextDueDate) return null;
+                  return (
+                    <div
+                      key={task.id}
+                      className="flex items-start gap-2 text-sm text-terracotta font-semibold"
+                    >
+                      <span className="flex-shrink-0">{TASK_TYPE_ICONS[task.type] || '📋'}</span>
+                      <div className="flex-grow min-w-0">
+                        <div className="truncate">{task.title}</div>
+                        <div className="text-xs">
+                          {formatTaskDate(new Date(task.nextDueDate))}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))}
-
-              {/* Upcoming tasks */}
-              {upcomingTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="flex items-start gap-2 text-sm text-soil"
-                >
-                  <span className="flex-shrink-0">{TASK_TYPE_ICONS[task.type] || '📋'}</span>
-                  <div className="flex-grow min-w-0">
-                    <div className="truncate">{task.title}</div>
-                    <div className="text-xs">
-                      {formatTaskDate(new Date(task.nextDueDate))}
+                  );
+                })()
+              ) : upcomingTasks.length > 0 ? (
+                (() => {
+                  const task = upcomingTasks[0];
+                  if (!task.nextDueDate) return null;
+                  return (
+                    <div
+                      key={task.id}
+                      className="flex items-start gap-2 text-sm text-soil"
+                    >
+                      <span className="flex-shrink-0">{TASK_TYPE_ICONS[task.type] || '📋'}</span>
+                      <div className="flex-grow min-w-0">
+                        <div className="truncate">{task.title}</div>
+                        <div className="text-xs">
+                          {formatTaskDate(new Date(task.nextDueDate))}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))}
+                  );
+                })()
+              ) : null}
             </div>
           </div>
         ) : (

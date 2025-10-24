@@ -57,6 +57,9 @@ export function TaskCard({ task, onUpdate }: TaskCardProps) {
   const [showNotes, setShowNotes] = useState(false);
   const [completionNotes, setCompletionNotes] = useState('');
 
+  // Don't render card if task has no due date
+  if (!task.nextDueDate) return null;
+
   const status = getTaskStatus(task.nextDueDate);
   const statusColors = {
     'overdue': 'border-red-300 bg-red-50',

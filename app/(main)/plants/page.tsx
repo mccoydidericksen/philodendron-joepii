@@ -2,7 +2,12 @@ import { auth, currentUser } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { DemoBanner } from '@/components/DemoBanner';
-import { getPlants, getDistinctSpeciesTypes } from '@/app/actions/plants';
+import {
+  getPlants,
+  getDistinctSpeciesTypes,
+  getDistinctLocations,
+  getAssignableUsers,
+} from '@/app/actions/plants';
 import { PlantsClient } from '@/components/PlantsClient';
 import { Button } from '@/components/ui/button';
 
@@ -18,11 +23,19 @@ export default async function PlantsPage() {
 
   // Fetch all plants
   const result = await getPlants(false);
-  const plants = result.success ? result.data : [];
+  const plants = (result.success && result.data) ? result.data : [];
 
   // Fetch species types for filter
   const speciesTypesResult = await getDistinctSpeciesTypes();
-  const speciesTypes = speciesTypesResult.success ? speciesTypesResult.data : [];
+  const speciesTypes = (speciesTypesResult.success && speciesTypesResult.data) ? speciesTypesResult.data : [];
+
+  // Fetch locations for filter
+  const locationsResult = await getDistinctLocations();
+  const locations = (locationsResult.success && locationsResult.data) ? locationsResult.data : [];
+
+  // Fetch assignable users for filter
+  const assigneesResult = await getAssignableUsers();
+  const assignees = (assigneesResult.success && assigneesResult.data) ? assigneesResult.data : [];
 
   return (
     <>
@@ -31,8 +44,8 @@ export default async function PlantsPage() {
         <div className="mx-auto max-w-7xl">
           <header className="mb-8 flex items-center justify-between">
             <div>
-              <h1 className="text-4xl font-bold text-moss-dark">My Plants</h1>
-              <p className="mt-2 text-soil">
+              <h1 className="text-3xl font-bold text-moss-dark mb-2" style={{ fontFamily: 'var(--font-fredoka)' }}>My Plants</h1>
+              <p className="text-sage-dark text-sm">
                 {plants.length === 0
                   ? "You haven't added any plants yet"
                   : `Managing ${plants.length} ${plants.length === 1 ? 'plant' : 'plants'}`}
@@ -62,7 +75,12 @@ export default async function PlantsPage() {
               </div>
             </div>
           ) : (
-            <PlantsClient speciesTypes={speciesTypes} initialPlants={plants} />
+            <PlantsClient
+              speciesTypes={speciesTypes}
+              locations={locations}
+              assignees={assignees}
+              initialPlants={plants}
+            />
           )}
         </div>
       </div>

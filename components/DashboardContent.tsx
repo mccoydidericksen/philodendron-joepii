@@ -31,10 +31,10 @@ export function DashboardContent({
       const upcomingResult = await getUpcomingTasks(7, speciesFilter);
       const overdueResult = await getOverdueTasks(speciesFilter);
 
-      if (upcomingResult.success) {
+      if (upcomingResult.success && upcomingResult.data) {
         setUpcomingTasks(upcomingResult.data);
       }
-      if (overdueResult.success) {
+      if (overdueResult.success && overdueResult.data) {
         setOverdueTasks(overdueResult.data);
       }
     }
@@ -44,6 +44,7 @@ export function DashboardContent({
 
   // Calculate task counts
   const tasksNeedingAttention = overdueTasks.length + upcomingTasks.filter(task => {
+    if (!task.nextDueDate) return false;
     const dueDate = new Date(task.nextDueDate);
     const diffDays = Math.ceil((dueDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
     return diffDays === 0; // Due today only
@@ -53,6 +54,7 @@ export function DashboardContent({
   const urgentTasks = [
     ...overdueTasks,
     ...upcomingTasks.filter(task => {
+      if (!task.nextDueDate) return false;
       const dueDate = new Date(task.nextDueDate);
       const diffDays = Math.ceil((dueDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
       return diffDays === 0;

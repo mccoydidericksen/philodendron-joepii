@@ -74,6 +74,9 @@ export function KanbanTaskCard({ task, isDraggable = false, onClick }: KanbanTas
     opacity: isDragging ? 0.5 : 1,
   };
 
+  // Don't render card if task has no due date
+  if (!task.nextDueDate) return null;
+
   const status = getTaskStatus(task.nextDueDate);
   const statusColors = {
     'overdue': 'border-l-red-500 bg-red-50/50',

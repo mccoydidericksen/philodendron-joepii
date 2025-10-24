@@ -25,13 +25,15 @@ export function TaskList({ tasks, onUpdate }: TaskListProps) {
 
   // Separate overdue, due soon, and upcoming tasks
   const now = new Date();
-  const overdueTasks = tasks.filter(task => new Date(task.nextDueDate) < now);
+  const overdueTasks = tasks.filter(task => task.nextDueDate && new Date(task.nextDueDate) < now);
   const dueSoonTasks = tasks.filter(task => {
+    if (!task.nextDueDate) return false;
     const dueDate = new Date(task.nextDueDate);
     const diffDays = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     return diffDays >= 0 && diffDays <= 1;
   });
   const upcomingTasks = tasks.filter(task => {
+    if (!task.nextDueDate) return false;
     const dueDate = new Date(task.nextDueDate);
     const diffDays = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     return diffDays > 1;

@@ -6,6 +6,7 @@
   --color-moss: #4a5f3f;
   --color-moss-light: #5d7350;
   --color-moss-dark: #3a4930;
+  --color-forest: #3d5439;
 
   --color-cream: #f4f3ee;
   --color-sage: #9ba88f;
@@ -25,10 +26,12 @@
   /* Semantic Colors */
   --color-primary: var(--color-moss);
   --color-primary-hover: var(--color-moss-light);
+  --color-primary-foreground: var(--color-cream);
   --color-secondary: var(--color-sage);
   --color-accent: var(--color-terracotta);
   --color-background: var(--color-cream);
-  --color-foreground: var(--color-moss-dark);
+  --color-foreground: var(--color-cream);
+  --color-text-primary: var(--color-moss-dark);
   --color-muted: var(--color-soil);
 
   /* Border Radius */
@@ -56,6 +59,7 @@
   --moss: #4a5f3f;
   --moss-light: #5d7350;
   --moss-dark: #3a4930;
+  --forest: #3d5439;
   --cream: #f4f3ee;
   --sage: #9ba88f;
   --sage-dark: #6b7a5f;
@@ -69,6 +73,13 @@
   --danger: #c44536;
 
   --radius: 0.625rem;
+
+  /* Chart Colors */
+  --chart-1: #4a5f3f;
+  --chart-2: #9ba88f;
+  --chart-3: #c15f3c;
+  --chart-4: #d4a574;
+  --chart-5: #7fb069;
 }
 
 /* Base Styles */
@@ -82,6 +93,11 @@ body {
   background-color: var(--cream);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ensure text remains readable throughout the app */
+.text-foreground {
+  color: var(--text-primary);
 }
 
 /* Grainy Texture Overlay */

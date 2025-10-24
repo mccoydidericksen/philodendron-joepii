@@ -1,5 +1,5 @@
 import { db } from './index';
-import { users, plants, careTasks as careTasksTable, taskCompletions } from './schema';
+import { users, plants, careTasks as careTasksTable, taskCompletions, plantMedia } from './schema';
 import { eq } from 'drizzle-orm';
 
 /**
@@ -13,7 +13,7 @@ import { eq } from 'drizzle-orm';
  */
 
 const PERSONAL_EMAIL = 'mccoy.did@gmail.com';
-const DEMO_EMAIL = 'victor.vale@philodendronjoepii.app';
+const DEMO_EMAIL = 'john.doe@plantrot.app';
 
 async function syncDemoData() {
   try {
@@ -55,6 +55,7 @@ async function syncDemoData() {
             completions: true,
           },
         },
+        media: true,
       },
     });
 
@@ -88,6 +89,9 @@ async function syncDemoData() {
 
         // Delete care tasks
         await db.delete(careTasksTable).where(eq(careTasksTable.plantId, plant.id));
+
+        // Delete plant media
+        await db.delete(plantMedia).where(eq(plantMedia.plantId, plant.id));
       }
 
       // Delete plants
@@ -105,10 +109,11 @@ async function syncDemoData() {
 
       let totalTasks = 0;
       let totalCompletions = 0;
+      let totalMedia = 0;
 
       for (const plant of personalPlants) {
         // Create a mapping of old plant IDs to new plant IDs
-        const { careTasks: tasks, ...plantData } = plant;
+        const { careTasks: tasks, media: mediaFiles, ...plantData } = plant;
 
         // Insert plant with demo user ID
         const [newPlant] = await db.insert(plants).values({
@@ -148,6 +153,19 @@ async function syncDemoData() {
             }
           }
         }
+
+        // Copy plant media for this plant
+        if (mediaFiles && mediaFiles.length > 0) {
+          for (const media of mediaFiles) {
+            await db.insert(plantMedia).values({
+              ...media,
+              plantId: newPlant.id,
+              userId: demoUser.id,
+              id: undefined, // Let DB generate new ID
+            });
+            totalMedia++;
+          }
+        }
       }
 
       console.log('');
@@ -157,6 +175,7 @@ async function syncDemoData() {
       console.log(`  - ${personalPlants.length} plants copied`);
       console.log(`  - ${totalTasks} care tasks copied`);
       console.log(`  - ${totalCompletions} task completions copied`);
+      console.log(`  - ${totalMedia} media files copied`);
     } else {
       console.log('✅ Demo account cleared. No data to copy yet.');
     }

@@ -11,6 +11,7 @@ interface DashboardKanbanProps {
     plant: {
       id: string;
       name: string;
+      primaryPhotoUrl: string | null;
     };
   }>;
 }

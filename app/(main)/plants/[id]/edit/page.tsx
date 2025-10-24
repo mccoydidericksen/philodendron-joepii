@@ -30,8 +30,8 @@ export default async function EditPlantPage({ params }: { params: Promise<{ id: 
       <div className="min-h-screen bg-cream p-8">
         <div className="mx-auto max-w-4xl">
           <header className="mb-8">
-            <h1 className="text-4xl font-bold text-moss-dark">Edit Plant</h1>
-            <p className="mt-2 text-soil">
+            <h1 className="text-3xl font-bold text-moss-dark mb-2" style={{ fontFamily: 'var(--font-fredoka)' }}>Edit Plant</h1>
+            <p className="text-sage-dark text-sm">
               Update details for {plant.name}
             </p>
           </header>

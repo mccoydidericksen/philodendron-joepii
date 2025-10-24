@@ -2,67 +2,117 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { FilterDropdown } from '@/components/FilterDropdown';
+import { PlantFilters } from '@/components/PlantFilters';
 import { FavoriteStarButton } from '@/components/FavoriteStarButton';
 import { getPlants } from '@/app/actions/plants';
 import type { Plant, CareTask, PlantMedia } from '@/lib/db/types';
 
+interface AssignableUser {
+  id: string;
+  name: string;
+  email: string;
+}
+
 interface PlantsClientProps {
   speciesTypes: string[];
+  locations: string[];
+  assignees: AssignableUser[];
   initialPlants: (Plant & { careTasks?: CareTask[]; media?: PlantMedia[] })[];
 }
 
-export function PlantsClient({ speciesTypes, initialPlants }: PlantsClientProps) {
+export function PlantsClient({
+  speciesTypes,
+  locations,
+  assignees,
+  initialPlants,
+}: PlantsClientProps) {
+  const [searchQuery, setSearchQuery] = useState('');
   const [speciesFilter, setSpeciesFilter] = useState('all');
+  const [locationFilter, setLocationFilter] = useState('all');
+  const [assigneeFilter, setAssigneeFilter] = useState('all');
   const [plants, setPlants] = useState(initialPlants);
 
   useEffect(() => {
     async function fetchFilteredPlants() {
-      const result = await getPlants(false, speciesFilter);
+      const result = await getPlants(false, speciesFilter, {
+        locationFilter,
+        assigneeFilter,
+      });
 
-      if (result.success) {
+      if (result.success && result.data) {
         setPlants(result.data);
       }
     }
 
     fetchFilteredPlants();
-  }, [speciesFilter]);
+  }, [speciesFilter, locationFilter, assigneeFilter]);
+
+  const handleClearFilters = () => {
+    setSearchQuery('');
+    setSpeciesFilter('all');
+    setLocationFilter('all');
+    setAssigneeFilter('all');
+  };
+
+  // Client-side search filtering
+  const filteredPlants = plants.filter((plant) => {
+    if (searchQuery === '') return true;
+
+    const query = searchQuery.toLowerCase();
+    const name = plant.name.toLowerCase();
+    const speciesType = plant.speciesType.toLowerCase();
+    const speciesName = plant.speciesName?.toLowerCase() || '';
+    const fullSpecies = `${speciesType} ${speciesName}`.toLowerCase();
+
+    return (
+      name.includes(query) ||
+      speciesType.includes(query) ||
+      speciesName.includes(query) ||
+      fullSpecies.includes(query)
+    );
+  });
 
   return (
     <>
       {/* Filter Section */}
-      {speciesTypes.length > 0 && (
-        <div className="mb-6">
-          <FilterDropdown
-            options={speciesTypes}
-            value={speciesFilter}
-            onChange={setSpeciesFilter}
-            label="Filter by Species Type"
-          />
-        </div>
-      )}
+      <PlantFilters
+        searchQuery={searchQuery}
+        speciesFilter={speciesFilter}
+        locationFilter={locationFilter}
+        assigneeFilter={assigneeFilter}
+        speciesOptions={speciesTypes}
+        locationOptions={locations}
+        assigneeOptions={assignees}
+        onSearchChange={setSearchQuery}
+        onSpeciesChange={setSpeciesFilter}
+        onLocationChange={setLocationFilter}
+        onAssigneeChange={setAssigneeFilter}
+        onClearFilters={handleClearFilters}
+      />
 
       {/* Plants Grid */}
-      {plants.length === 0 ? (
+      {filteredPlants.length === 0 ? (
         <div className="rounded-lg border-2 border-sage bg-card-bg p-12 text-center">
           <div className="mx-auto max-w-md">
             <h2 className="text-2xl font-semibold text-moss-dark mb-4">
               No Plants Found
             </h2>
             <p className="text-soil mb-6">
-              {speciesFilter === 'all'
-                ? "You haven't added any plants yet."
-                : `No plants found with species type "${speciesFilter}".`
+              {searchQuery !== ''
+                ? `No plants found matching "${searchQuery}".`
+                : speciesFilter === 'all'
+                  ? "You haven't added any plants yet."
+                  : `No plants found with species type "${speciesFilter}".`
               }
             </p>
           </div>
         </div>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {plants.map((plant) => {
+          {filteredPlants.map((plant) => {
             const primaryMedia = plant.media?.[0];
             const upcomingTasks = plant.careTasks?.filter(
-              (task) => new Date(task.nextDueDate) >= new Date()
+              (task) => task.nextDueDate && new Date(task.nextDueDate) >= new Date()
             ).length || 0;
 
             return (
@@ -104,10 +154,18 @@ export function PlantsClient({ speciesTypes, initialPlants }: PlantsClientProps)
                   </h3>
                   <p className="text-sm text-soil mt-1 italic">{plant.speciesType} {plant.speciesName}</p>
 
-                  <div className="mt-3 flex items-center gap-4 text-sm">
+                  <div className="mt-3 flex flex-col gap-2 text-sm">
                     <span className="text-soil">
                       📍 {plant.location}
                     </span>
+
+                    {/* Assignment Info */}
+                    {(plant as any).assignedUser && (
+                      <span className="text-soil">
+                        👤 {(plant as any).assignedUser.firstName || (plant as any).assignedUser.email.split('@')[0]}
+                      </span>
+                    )}
+
                     {upcomingTasks > 0 && (
                       <span className="text-terracotta font-medium">
                         {upcomingTasks} task{upcomingTasks !== 1 ? 's' : ''}

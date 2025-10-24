@@ -41,7 +41,7 @@ export function FavoriteStarButton({ plantId, plantName, isFavorite }: FavoriteS
     <button
       onClick={handleToggleFavorite}
       disabled={isPending}
-      className="absolute top-2 right-2 z-10 p-2 rounded-full bg-soil/70 hover:bg-soil/90 transition-all hover:scale-110 active:scale-95 disabled:opacity-50"
+      className="absolute top-2 right-2 z-50 p-2 rounded-full bg-soil/70 hover:bg-soil/90 transition-all hover:scale-110 active:scale-95 disabled:opacity-50"
       aria-label={optimisticFavorite ? 'Remove from favorites' : 'Add to favorites'}
     >
       <Star
