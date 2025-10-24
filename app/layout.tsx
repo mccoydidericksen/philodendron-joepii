@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import { Fredoka } from 'next/font/google';
 import { ClerkProvider } from '@clerk/nextjs';
 import { Toaster } from 'sonner';
+import { Analytics } from '@vercel/analytics/react';
+import { PostHogProvider } from './providers';
 import './globals.css';
 
 const fredoka = Fredoka({
@@ -32,8 +34,11 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en">
         <body className={`${fredoka.variable} antialiased`}>
-          {children}
-          <Toaster position="top-right" richColors />
+          <PostHogProvider>
+            {children}
+            <Toaster position="top-right" richColors />
+            <Analytics />
+          </PostHogProvider>
         </body>
       </html>
     </ClerkProvider>
