@@ -14,7 +14,7 @@ export function DemoLoginModal({ isOpen, onClose }: DemoLoginModalProps) {
   const [copied, setCopied] = useState(false);
 
   const demoCredentials = {
-    email: 'victor.vale@philodendronjoepii.app',
+    email: 'john.doe@plantrot.app',
     password: 'DemoPlantTracker2025!',
   };
 
