@@ -115,7 +115,6 @@ export default async function GroupDetailPage({ params }: { params: Promise<{ gr
             groupId={groupId}
             groupName={group.name}
             description={group.description}
-            memberCount={group.memberCount}
             userRole={userRole}
             currentUserId={userId}
           />

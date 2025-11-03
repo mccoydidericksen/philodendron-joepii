@@ -89,7 +89,6 @@ export async function createPlantGroup(name: string, description?: string) {
 
     return createSuccessResponse({ id: organization.id, name: organization.name });
   } catch (error) {
-    console.error('Error creating plant group:', error);
     return createErrorResponse(error, 'Failed to create plant group');
   }
 }
@@ -131,7 +130,6 @@ export async function getMyPlantGroups() {
       data: groupsWithData,
     };
   } catch (error) {
-    console.error('Error fetching plant groups:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch plant groups',
@@ -185,7 +183,6 @@ export async function getPlantGroup(groupId: string) {
       },
     };
   } catch (error) {
-    console.error('Error fetching plant group:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch plant group',
@@ -235,7 +232,6 @@ export async function updatePlantGroup(groupId: string, name: string, descriptio
       success: true,
     };
   } catch (error) {
-    console.error('Error updating plant group:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to update plant group',
@@ -270,7 +266,6 @@ export async function deletePlantGroup(groupId: string) {
       success: true,
     };
   } catch (error) {
-    console.error('Error deleting plant group:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to delete plant group',
@@ -330,7 +325,6 @@ export async function getGroupMembers(groupId: string) {
       data: membersWithData,
     };
   } catch (error) {
-    console.error('Error fetching group members:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch group members',
@@ -355,20 +349,35 @@ export async function inviteMemberToGroup(groupId: string, email: string) {
       };
     }
 
-    // Check member count
+    // Check member count + pending invitations
     const group = await db.query.plantGroups.findFirst({
       where: eq(plantGroups.clerkOrgId, groupId),
     });
 
-    if (group && group.memberCount >= 5) {
+    if (!group) {
       return {
         success: false,
-        error: 'Group is full (maximum 5 members)',
+        error: 'Group not found',
+      };
+    }
+
+    // Get pending invitations count and create invitation
+    const clerk = await clerkClient();
+    const invitations = await clerk.organizations.getOrganizationInvitationList({
+      organizationId: groupId,
+      status: ['pending'],
+    });
+
+    const totalSlotsUsed = group.memberCount + invitations.data.length;
+
+    if (totalSlotsUsed >= 5) {
+      return {
+        success: false,
+        error: 'Group is full (maximum 5 members including pending invitations)',
       };
     }
 
     // Create invitation in Clerk
-    const clerk = await clerkClient();
     await clerk.organizations.createOrganizationInvitation({
       organizationId: groupId,
       inviterUserId: clerkUserId,
@@ -382,7 +391,6 @@ export async function inviteMemberToGroup(groupId: string, email: string) {
       success: true,
     };
   } catch (error) {
-    console.error('Error inviting member:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to invite member',
@@ -425,7 +433,6 @@ export async function getPendingInvitations(groupId: string) {
       })),
     };
   } catch (error) {
-    console.error('Error fetching invitations:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch invitations',
@@ -464,7 +471,6 @@ export async function revokeInvitation(groupId: string, invitationId: string) {
       success: true,
     };
   } catch (error) {
-    console.error('Error revoking invitation:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to revoke invitation',
@@ -526,7 +532,6 @@ export async function removeMember(groupId: string, memberUserId: string) {
       success: true,
     };
   } catch (error) {
-    console.error('Error removing member:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to remove member',
@@ -574,7 +579,6 @@ export async function leaveGroup(groupId: string) {
       success: true,
     };
   } catch (error) {
-    console.error('Error leaving group:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to leave group',

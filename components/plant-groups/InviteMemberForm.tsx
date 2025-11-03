@@ -9,14 +9,16 @@ import { Button } from '@/components/ui/button';
 interface InviteMemberFormProps {
   groupId: string;
   memberCount: number;
+  pendingInvitationCount: number;
   onInviteSent?: () => void;
 }
 
-export function InviteMemberForm({ groupId, memberCount, onInviteSent }: InviteMemberFormProps) {
+export function InviteMemberForm({ groupId, memberCount, pendingInvitationCount, onInviteSent }: InviteMemberFormProps) {
   const [isPending, startTransition] = useTransition();
   const [email, setEmail] = useState('');
 
-  const isFull = memberCount >= 5;
+  const totalSlotsUsed = memberCount + pendingInvitationCount;
+  const isFull = totalSlotsUsed >= 5;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,7 +57,7 @@ export function InviteMemberForm({ groupId, memberCount, onInviteSent }: InviteM
       {isFull ? (
         <div className="bg-warning/10 border-2 border-warning rounded-md p-4">
           <p className="text-sm text-soil">
-            <strong>Group is full (5/5 members)</strong>
+            <strong>Group is full ({totalSlotsUsed}/5 members)</strong>
             <br />
             Remove a member before inviting new ones.
           </p>

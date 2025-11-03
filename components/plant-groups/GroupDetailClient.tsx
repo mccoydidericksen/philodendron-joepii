@@ -37,7 +37,6 @@ interface GroupDetailClientProps {
   groupId: string;
   groupName: string;
   description: string | null;
-  memberCount: number;
   userRole: 'admin' | 'member';
   currentUserId: string;
 }
@@ -46,7 +45,6 @@ export function GroupDetailClient({
   groupId,
   groupName,
   description,
-  memberCount,
   userRole,
   currentUserId,
 }: GroupDetailClientProps) {
@@ -55,6 +53,10 @@ export function GroupDetailClient({
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(true);
+
+  // Calculate actual member count from loaded data
+  const actualMemberCount = members.length;
+  const totalSlotsUsed = actualMemberCount + invitations.length;
 
   const loadMembersAndInvitations = async () => {
     setIsLoadingMembers(true);
@@ -168,7 +170,7 @@ export function GroupDetailClient({
         <div className="flex items-center gap-6 text-sm text-soil">
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4" />
-            <span>{memberCount} {memberCount === 1 ? 'member' : 'members'}</span>
+            <span>{actualMemberCount} {actualMemberCount === 1 ? 'member' : 'members'}</span>
           </div>
         </div>
 
@@ -201,7 +203,8 @@ export function GroupDetailClient({
       {userRole === 'admin' && (
         <InviteMemberForm
           groupId={groupId}
-          memberCount={memberCount}
+          memberCount={actualMemberCount}
+          pendingInvitationCount={invitations.length}
           onInviteSent={loadMembersAndInvitations}
         />
       )}

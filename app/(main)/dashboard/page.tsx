@@ -1,6 +1,7 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import { MessageCircle } from 'lucide-react';
 import { DemoBanner } from '@/components/DemoBanner';
 import { getPlantsCount, getDistinctSpeciesTypes, getFavoritePlants, getPlants, getPlantCountsBySpeciesType } from '@/app/actions/plants';
 import { getUpcomingTasks, getOverdueTasks } from '@/app/actions/tasks';
@@ -70,6 +71,16 @@ export default async function DashboardPage() {
         <div className="mx-auto max-w-[1800px] relative">
           {/* User Actions - Top Right */}
           <div className="absolute right-0 top-0 flex items-center gap-3">
+            <Link href="/plant-assistant">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-moss hover:text-moss-dark hover:bg-moss/10"
+                title="AI Plant Assistant"
+              >
+                <MessageCircle className="h-5 w-5" />
+              </Button>
+            </Link>
             <NotificationBell />
             <UserButton
               appearance={{

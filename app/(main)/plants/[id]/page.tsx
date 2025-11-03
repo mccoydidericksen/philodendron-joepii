@@ -1,6 +1,7 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
+import { MessageCircle } from 'lucide-react';
 import { DemoBanner } from '@/components/DemoBanner';
 import { getPlant } from '@/app/actions/plants';
 import { Button } from '@/components/ui/button';
@@ -49,11 +50,19 @@ export default async function PlantDetailPage({ params }: { params: Promise<{ id
                 </h1>
                 <p className="text-sage-dark text-sm italic">{plant.speciesType} {plant.speciesName}</p>
               </div>
-              <Link href={`/plants/${plant.id}/edit`}>
-                <Button className="bg-moss hover:bg-moss-light text-white">
-                  Edit Plant
-                </Button>
-              </Link>
+              <div className="flex gap-3">
+                <Link href="/plant-assistant">
+                  <Button variant="outline" className="border-moss text-moss hover:bg-moss/10">
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    Ask Assistant
+                  </Button>
+                </Link>
+                <Link href={`/plants/${plant.id}/edit`}>
+                  <Button className="bg-moss hover:bg-moss-light text-white">
+                    Edit Plant
+                  </Button>
+                </Link>
+              </div>
             </div>
           </header>
 
