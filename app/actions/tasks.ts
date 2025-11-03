@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { db } from '@/lib/db';
 import { careTasks, taskCompletions, plants } from '@/lib/db/schema';
-import { eq, and, desc, asc, lte, gte } from 'drizzle-orm';
+import { eq, and, desc, asc, lte, gte, or, inArray } from 'drizzle-orm';
 import type { CareTaskType, RecurrencePattern, TaskScheduleMode } from '@/lib/db/types';
 import { calculateNextDueDate } from '@/lib/utils/date-helpers';
 import { getUserId, getDbUserId, verifyPlantOwnership } from '@/lib/auth/helpers';
@@ -471,13 +471,37 @@ export async function getUpcomingTasks(daysAhead: number = 7, speciesTypeFilter?
     const clerkUserId = await getUserId();
     const dbUserId = await getDbUserId(clerkUserId);
 
+    // Get user's group ID to find accessible plants
+    const { getUserSingleGroupId } = await import('@/lib/auth/group-auth');
+    const userGroupId = await getUserSingleGroupId(clerkUserId);
+
+    // Get accessible plant IDs (personal + group plants)
+    const accessiblePlants = await db.query.plants.findMany({
+      where: userGroupId
+        ? or(
+            eq(plants.userId, dbUserId),
+            eq(plants.plantGroupId, userGroupId)
+          )
+        : eq(plants.userId, dbUserId),
+      columns: { id: true },
+    });
+
+    const plantIds = accessiblePlants.map(p => p.id);
+
+    if (plantIds.length === 0) {
+      return {
+        success: true,
+        data: [],
+      };
+    }
+
     const today = new Date();
     const futureDate = new Date();
     futureDate.setDate(futureDate.getDate() + daysAhead);
 
     const tasks = await db.query.careTasks.findMany({
       where: and(
-        eq(careTasks.userId, dbUserId),
+        inArray(careTasks.plantId, plantIds),
         gte(careTasks.nextDueDate, today),
         lte(careTasks.nextDueDate, futureDate)
       ),
@@ -517,11 +541,35 @@ export async function getOverdueTasks(speciesTypeFilter?: string) {
     const clerkUserId = await getUserId();
     const dbUserId = await getDbUserId(clerkUserId);
 
+    // Get user's group ID to find accessible plants
+    const { getUserSingleGroupId } = await import('@/lib/auth/group-auth');
+    const userGroupId = await getUserSingleGroupId(clerkUserId);
+
+    // Get accessible plant IDs (personal + group plants)
+    const accessiblePlants = await db.query.plants.findMany({
+      where: userGroupId
+        ? or(
+            eq(plants.userId, dbUserId),
+            eq(plants.plantGroupId, userGroupId)
+          )
+        : eq(plants.userId, dbUserId),
+      columns: { id: true },
+    });
+
+    const plantIds = accessiblePlants.map(p => p.id);
+
+    if (plantIds.length === 0) {
+      return {
+        success: true,
+        data: [],
+      };
+    }
+
     const today = new Date();
 
     const tasks = await db.query.careTasks.findMany({
       where: and(
-        eq(careTasks.userId, dbUserId),
+        inArray(careTasks.plantId, plantIds),
         lte(careTasks.nextDueDate, today)
       ),
       orderBy: [asc(careTasks.nextDueDate)],
@@ -766,5 +814,130 @@ export async function getTaskHistory(taskId: string) {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch task history',
     };
+  }
+}
+
+// ============================================
+// BULK COMPLETE TASKS
+// ============================================
+
+export async function bulkCompleteTasks(taskIds: string[]) {
+  try {
+    const clerkUserId = await getUserId();
+    const dbUserId = await getDbUserId(clerkUserId);
+
+    if (!taskIds || taskIds.length === 0) {
+      return createErrorResponse('No tasks provided');
+    }
+
+    const completedAt = new Date();
+    const results = {
+      completed: 0,
+      failed: 0,
+      errors: [] as string[],
+    };
+
+    // Process each task
+    for (const taskId of taskIds) {
+      try {
+        // Get task details
+        const task = await db.query.careTasks.findFirst({
+          where: and(
+            eq(careTasks.id, taskId),
+            eq(careTasks.userId, dbUserId)
+          ),
+        });
+
+        if (!task) {
+          results.failed++;
+          results.errors.push(`Task ${taskId} not found or unauthorized`);
+          continue;
+        }
+
+        // Record completion
+        await db
+          .insert(taskCompletions)
+          .values({
+            taskId,
+            userId: dbUserId,
+            completedAt,
+            notes: null,
+            skipped: false,
+          });
+
+        // Update plant's last care date based on task type
+        const taskTypeToCareField: Record<string, string | string[]> = {
+          'water': 'lastWateredAt',
+          'fertilize': 'lastFertilizedAt',
+          'mist': 'lastMistedAt',
+          'repot_check': 'lastRepottedAt',
+          'water_fertilize': ['lastWateredAt', 'lastFertilizedAt'],
+        };
+
+        const fieldsToUpdate = taskTypeToCareField[task.type];
+        if (fieldsToUpdate) {
+          const updateData = Array.isArray(fieldsToUpdate)
+            ? Object.fromEntries(fieldsToUpdate.map(f => [f, completedAt]))
+            : { [fieldsToUpdate]: completedAt };
+
+          await db
+            .update(plants)
+            .set({
+              ...updateData,
+              updatedAt: new Date(),
+            })
+            .where(eq(plants.id, task.plantId));
+        }
+
+        // Handle task based on type (recurring, one-time, or unscheduled)
+        if (task.isRecurring && task.recurrencePattern) {
+          // Recurring task: calculate next due date and update
+          const nextDueDate = calculateNextDueDate(completedAt, task.recurrencePattern);
+          await db
+            .update(careTasks)
+            .set({
+              lastCompletedAt: completedAt,
+              nextDueDate: nextDueDate,
+              updatedAt: new Date(),
+            })
+            .where(eq(careTasks.id, taskId));
+        } else if (!task.isRecurring && task.nextDueDate) {
+          // One-time task with a due date: delete after completion
+          await db
+            .delete(careTasks)
+            .where(eq(careTasks.id, taskId));
+        } else {
+          // Unscheduled task (no due date): just update lastCompletedAt
+          await db
+            .update(careTasks)
+            .set({
+              lastCompletedAt: completedAt,
+              updatedAt: new Date(),
+            })
+            .where(eq(careTasks.id, taskId));
+        }
+
+        results.completed++;
+      } catch (error) {
+        results.failed++;
+        results.errors.push(`Error completing task ${taskId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    // Revalidate common paths
+    revalidateCommonPaths();
+
+    if (results.failed > 0) {
+      return {
+        success: false,
+        error: `Completed ${results.completed} tasks, but ${results.failed} failed`,
+        data: results,
+      };
+    }
+
+    return createSuccessResponse(results);
+  } catch (error) {
+    console.error('Error bulk completing tasks:', error);
+    return createErrorResponse(error, 'Failed to bulk complete tasks');
   }
 }

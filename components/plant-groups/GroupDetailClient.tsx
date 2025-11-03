@@ -174,11 +174,6 @@ export function GroupDetailClient({
 
         {/* Action Buttons */}
         <div className="mt-4 flex flex-wrap gap-3">
-          <Link href={`/groups/${groupId}/plants`}>
-            <Button variant="outline">
-              View Group Plants
-            </Button>
-          </Link>
           {userRole === 'admin' ? (
             <Button
               onClick={handleDeleteGroup}

@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { db } from '@/lib/db';
 import { plants, careTasks, users } from '@/lib/db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, or } from 'drizzle-orm';
 import type { NewPlant, Plant } from '@/lib/db/types';
 import { createDefaultTasksForPlant } from '@/lib/utils/auto-task-generator';
 import { calculateNextDueDate } from '@/lib/utils/date-helpers';
@@ -17,7 +17,6 @@ import { revalidateCommonPaths, revalidatePlantPaths, revalidateGroupPaths, crea
 export async function createPlant(
   data: Omit<NewPlant, 'userId' | 'id' | 'createdAt' | 'updatedAt' | 'createdByUserId'>,
   options?: {
-    plantGroupId?: string | null;
     assignedUserId?: string | null;
   }
 ) {
@@ -25,25 +24,16 @@ export async function createPlant(
     const clerkUserId = await getUserId();
     const dbUserId = await getDbUserId(clerkUserId);
 
-    // If plantGroupId provided, verify user is a member
-    if (options?.plantGroupId) {
-      const group = await db.query.plantGroups.findFirst({
-        where: eq(plants.plantGroupId, options.plantGroupId),
-      });
-
-      if (group) {
-        // Check membership via Clerk
-        const { canAccessPlant } = await import('@/lib/auth/group-auth');
-        // Note: We'll check membership via Clerk org ID
-      }
-    }
+    // Auto-detect if user is in a group and automatically assign plant to that group
+    const { getUserSingleGroupId } = await import('@/lib/auth/group-auth');
+    const userGroupId = await getUserSingleGroupId(clerkUserId);
 
     const [newPlant] = await db
       .insert(plants)
       .values({
         ...data,
         userId: dbUserId,
-        plantGroupId: options?.plantGroupId || null,
+        plantGroupId: userGroupId, // Automatically set to user's group (or null if no group)
         assignedUserId: options?.assignedUserId || dbUserId,
         createdByUserId: dbUserId,
       })
@@ -63,8 +53,9 @@ export async function createPlant(
     }
 
     revalidateCommonPaths();
-    if (options?.plantGroupId) {
-      revalidatePath(`/groups/${options.plantGroupId}`);
+    if (userGroupId) {
+      // Revalidate group paths if plant was auto-added to a group
+      revalidateGroupPaths();
     }
 
     return createSuccessResponse(newPlant);
@@ -135,10 +126,14 @@ export async function getPlants(
     const clerkUserId = await getUserId();
     const dbUserId = await getDbUserId(clerkUserId);
 
+    // Get user's group ID for filtering
+    const { getUserSingleGroupId } = await import('@/lib/auth/group-auth');
+    const userGroupId = await getUserSingleGroupId(clerkUserId);
+
     let whereConditions;
 
     if (options?.groupId) {
-      // Get group plants
+      // Get specific group plants
       const group = await db.query.plantGroups.findFirst({
         where: (plantGroups, { eq }) => eq(plantGroups.clerkOrgId, options.groupId!),
       });
@@ -163,13 +158,30 @@ export async function getPlants(
             eq(plants.isArchived, false)
           );
     } else {
-      // Default: get all user's personal plants (backward compatible)
-      whereConditions = includeArchived
-        ? eq(plants.userId, dbUserId)
-        : and(
-            eq(plants.userId, dbUserId),
-            eq(plants.isArchived, false)
-          );
+      // Default: get all accessible plants (personal + group)
+      if (userGroupId) {
+        // User is in a group - show personal plants OR plants in their group
+        whereConditions = includeArchived
+          ? or(
+              eq(plants.userId, dbUserId),
+              eq(plants.plantGroupId, userGroupId)
+            )
+          : and(
+              or(
+                eq(plants.userId, dbUserId),
+                eq(plants.plantGroupId, userGroupId)
+              ),
+              eq(plants.isArchived, false)
+            );
+      } else {
+        // User not in a group - show only personal plants
+        whereConditions = includeArchived
+          ? eq(plants.userId, dbUserId)
+          : and(
+              eq(plants.userId, dbUserId),
+              eq(plants.isArchived, false)
+            );
+      }
     }
 
     // Add assigned to me filter
@@ -241,12 +253,23 @@ export async function getDistinctSpeciesTypes() {
     const clerkUserId = await getUserId();
     const dbUserId = await getDbUserId(clerkUserId);
 
+    // Get user's group ID for filtering
+    const { getUserSingleGroupId } = await import('@/lib/auth/group-auth');
+    const userGroupId = await getUserSingleGroupId(clerkUserId);
+
+    const whereConditions = userGroupId
+      ? or(
+          eq(plants.userId, dbUserId),
+          eq(plants.plantGroupId, userGroupId)
+        )
+      : eq(plants.userId, dbUserId);
+
     const result = await db
       .selectDistinct({ speciesType: plants.speciesType })
       .from(plants)
       .where(
         and(
-          eq(plants.userId, dbUserId),
+          whereConditions,
           eq(plants.isArchived, false)
         )
       )
@@ -264,10 +287,21 @@ export async function getPlantCountsBySpeciesType() {
     const clerkUserId = await getUserId();
     const dbUserId = await getDbUserId(clerkUserId);
 
+    // Get user's group ID for filtering
+    const { getUserSingleGroupId } = await import('@/lib/auth/group-auth');
+    const userGroupId = await getUserSingleGroupId(clerkUserId);
+
+    const whereConditions = userGroupId
+      ? or(
+          eq(plants.userId, dbUserId),
+          eq(plants.plantGroupId, userGroupId)
+        )
+      : eq(plants.userId, dbUserId);
+
     // Get all non-archived plants
     const userPlants = await db.query.plants.findMany({
       where: and(
-        eq(plants.userId, dbUserId),
+        whereConditions,
         eq(plants.isArchived, false)
       ),
       columns: {
@@ -316,12 +350,23 @@ export async function getDistinctLocations() {
     const clerkUserId = await getUserId();
     const dbUserId = await getDbUserId(clerkUserId);
 
+    // Get user's group ID for filtering
+    const { getUserSingleGroupId } = await import('@/lib/auth/group-auth');
+    const userGroupId = await getUserSingleGroupId(clerkUserId);
+
+    const whereConditions = userGroupId
+      ? or(
+          eq(plants.userId, dbUserId),
+          eq(plants.plantGroupId, userGroupId)
+        )
+      : eq(plants.userId, dbUserId);
+
     const result = await db
       .selectDistinct({ location: plants.location })
       .from(plants)
       .where(
         and(
-          eq(plants.userId, dbUserId),
+          whereConditions,
           eq(plants.isArchived, false)
         )
       )
@@ -345,6 +390,17 @@ export async function getAssignableUsers() {
     const clerkUserId = await getUserId();
     const dbUserId = await getDbUserId(clerkUserId);
 
+    // Get user's group ID for filtering
+    const { getUserSingleGroupId } = await import('@/lib/auth/group-auth');
+    const userGroupId = await getUserSingleGroupId(clerkUserId);
+
+    const whereConditions = userGroupId
+      ? or(
+          eq(plants.userId, dbUserId),
+          eq(plants.plantGroupId, userGroupId)
+        )
+      : eq(plants.userId, dbUserId);
+
     // Get unique assigned users from plants
     const result = await db
       .selectDistinct({
@@ -356,7 +412,7 @@ export async function getAssignableUsers() {
       .innerJoin(users, eq(plants.assignedUserId, users.id))
       .where(
         and(
-          eq(plants.userId, dbUserId),
+          whereConditions,
           eq(plants.isArchived, false)
         )
       )
@@ -405,12 +461,23 @@ export async function getPlantsCount() {
     const clerkUserId = await getUserId();
     const dbUserId = await getDbUserId(clerkUserId);
 
+    // Get user's group ID for filtering
+    const { getUserSingleGroupId } = await import('@/lib/auth/group-auth');
+    const userGroupId = await getUserSingleGroupId(clerkUserId);
+
+    const whereConditions = userGroupId
+      ? or(
+          eq(plants.userId, dbUserId),
+          eq(plants.plantGroupId, userGroupId)
+        )
+      : eq(plants.userId, dbUserId);
+
     const result = await db
       .select()
       .from(plants)
       .where(
         and(
-          eq(plants.userId, dbUserId),
+          whereConditions,
           eq(plants.isArchived, false)
         )
       );
@@ -756,9 +823,20 @@ export async function getFavoritePlants() {
     const clerkUserId = await getUserId();
     const dbUserId = await getDbUserId(clerkUserId);
 
+    // Get user's group ID for filtering
+    const { getUserSingleGroupId } = await import('@/lib/auth/group-auth');
+    const userGroupId = await getUserSingleGroupId(clerkUserId);
+
+    const whereConditions = userGroupId
+      ? or(
+          eq(plants.userId, dbUserId),
+          eq(plants.plantGroupId, userGroupId)
+        )
+      : eq(plants.userId, dbUserId);
+
     const favoritePlants = await db.query.plants.findMany({
       where: and(
-        eq(plants.userId, dbUserId),
+        whereConditions,
         eq(plants.isFavorite, true),
         eq(plants.isArchived, false)
       ),

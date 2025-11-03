@@ -3,7 +3,7 @@ import { headers } from 'next/headers';
 import { WebhookEvent } from '@clerk/nextjs/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { users, plantGroups, plantGroupMembers } from '@/lib/db/schema';
+import { users, plantGroups, plantGroupMembers, plants } from '@/lib/db/schema';
 
 export async function POST(req: Request) {
   // Get the Clerk webhook secret
@@ -247,7 +247,15 @@ export async function POST(req: Request) {
           })
           .where(eq(plantGroups.id, plantGroup.id));
 
+        // Auto-add all user's plants to the group
+        // This ensures when someone joins a group, all their plants are immediately shared
+        await db
+          .update(plants)
+          .set({ plantGroupId: plantGroup.id })
+          .where(eq(plants.userId, user.id));
+
         console.log(`Membership ${id} created for plant group ${organization.id}`);
+        console.log(`Auto-added all plants for user ${user.id} to group ${plantGroup.id}`);
       } catch (insertError: any) {
         // Ignore duplicate key errors (23505) - membership may already exist
         if (insertError.code === '23505') {
@@ -276,6 +284,11 @@ export async function POST(req: Request) {
         return new Response('Plant group not found', { status: 400 });
       }
 
+      // Get the membership to find the user before deleting
+      const membership = await db.query.plantGroupMembers.findFirst({
+        where: eq(plantGroupMembers.clerkMembershipId, id as string),
+      });
+
       // Delete membership
       await db
         .delete(plantGroupMembers)
@@ -289,6 +302,17 @@ export async function POST(req: Request) {
           updatedAt: new Date(),
         })
         .where(eq(plantGroups.id, plantGroup.id));
+
+      // Remove all user's plants from the group (make them personal again)
+      // This ensures when someone leaves a group, their plants become private
+      if (membership) {
+        await db
+          .update(plants)
+          .set({ plantGroupId: null })
+          .where(eq(plants.userId, membership.userId));
+
+        console.log(`Removed all plants for user ${membership.userId} from group ${plantGroup.id}`);
+      }
 
       console.log(`Membership ${id} deleted for plant group ${organization.id}`);
     } catch (error) {

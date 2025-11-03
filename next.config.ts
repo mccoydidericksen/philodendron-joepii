@@ -10,11 +10,11 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
-        source: '/ingest/static/:path*',
+        source: '/greenhouse/static/:path*',
         destination: 'https://us-assets.i.posthog.com/static/:path*',
       },
       {
-        source: '/ingest/:path*',
+        source: '/greenhouse/:path*',
         destination: 'https://us.i.posthog.com/:path*',
       },
     ];

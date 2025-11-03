@@ -2,7 +2,7 @@
 
 import { clerkClient } from '@clerk/nextjs/server';
 import { db } from '@/lib/db';
-import { plantGroups, plantGroupMembers, users } from '@/lib/db/schema';
+import { plantGroups, plantGroupMembers, users, plants } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getUserId, getDbUserId } from '@/lib/auth/helpers';
 import { revalidateGroupPaths, createSuccessResponse, createSuccessResponseNoData, createErrorResponse } from '@/lib/utils/server-helpers';
@@ -31,6 +31,18 @@ export async function createPlantGroup(name: string, description?: string) {
     const clerkUserId = await getUserId();
     const dbUserId = await getDbUserId(clerkUserId);
 
+    // Check if user is already in a group
+    const existingMembership = await db.query.plantGroupMembers.findFirst({
+      where: eq(plantGroupMembers.userId, dbUserId),
+    });
+
+    if (existingMembership) {
+      return createErrorResponse(
+        new Error('You are already in a group'),
+        'You can only be a member of one plant group at a time. Please leave your current group before creating a new one.'
+      );
+    }
+
     // Create Clerk organization
     const clerk = await clerkClient();
     const organization = await clerk.organizations.createOrganization({
@@ -43,20 +55,35 @@ export async function createPlantGroup(name: string, description?: string) {
     });
 
     // Create local database record (webhook may also create it, but this is faster for UX)
+    let localGroupId: string;
     try {
-      await db.insert(plantGroups).values({
+      const result = await db.insert(plantGroups).values({
         clerkOrgId: organization.id,
         name: organization.name,
         description: description || null,
         createdByUserId: dbUserId,
         memberCount: 0, // Will be incremented to 1 by organizationMembership.created webhook
-      });
+      }).returning({ id: plantGroups.id });
+
+      localGroupId = result[0].id;
     } catch (error: any) {
-      // Ignore duplicate errors - webhook may have already created it
-      if (error.code !== '23505') {
+      // If duplicate, fetch the existing group
+      if (error.code === '23505') {
+        const existingGroup = await db.query.plantGroups.findFirst({
+          where: eq(plantGroups.clerkOrgId, organization.id),
+        });
+        localGroupId = existingGroup!.id;
+      } else {
         throw error;
       }
     }
+
+    // Auto-add all user's plants to the new group
+    // This happens immediately on group creation
+    await db
+      .update(plants)
+      .set({ plantGroupId: localGroupId })
+      .where(eq(plants.userId, dbUserId));
 
     revalidateGroupPaths();
 

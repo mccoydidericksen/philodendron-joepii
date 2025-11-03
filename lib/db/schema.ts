@@ -508,7 +508,8 @@ export const plantGroupMembers = pgTable("plant_group_members", {
     .references(() => plantGroups.id, { onDelete: "cascade" }),
   userId: uuid("user_id")
     .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
+    .references(() => users.id, { onDelete: "cascade" })
+    .unique("unique_user_one_group"), // Each user can only be in ONE group
   clerkMembershipId: text("clerk_membership_id").notNull(),
   role: plantGroupRoleEnum("role").notNull(),
   joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow().notNull(),

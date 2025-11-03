@@ -8,23 +8,29 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Initialize PostHog only on client-side
     if (typeof window !== 'undefined') {
-      posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
-        api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-        ui_host: 'https://us.posthog.com',
-        person_profiles: 'identified_only',
-        capture_pageview: true,
-        capture_pageleave: true,
-        session_recording: {
-          maskAllInputs: false,
-          maskInputOptions: {
-            password: true,
+      if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+        console.error('[PostHog] ERROR: NEXT_PUBLIC_POSTHOG_KEY is not set!');
+        return;
+      }
+
+      try {
+        posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
+          api_host: '/greenhouse',
+          ui_host: 'https://us.posthog.com',
+          person_profiles: 'identified_only',
+          capture_pageview: true,
+          capture_pageleave: true,
+          session_recording: {
+            maskAllInputs: false,
+            maskInputOptions: {
+              password: true,
+            },
           },
-        },
-        capture_exceptions: true,
-        loaded: (posthog) => {
-          if (process.env.NODE_ENV === 'development') console.log('PostHog loaded');
-        },
-      });
+          capture_exceptions: true,
+        });
+      } catch (error) {
+        console.error('[PostHog] Initialization error:', error);
+      }
     }
   }, []);
 

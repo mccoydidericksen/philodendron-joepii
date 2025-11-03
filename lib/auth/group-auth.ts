@@ -144,6 +144,31 @@ export async function getUserGroupIds(clerkUserId: string): Promise<string[]> {
   }
 }
 
+/**
+ * Get the user's single plant group ID (internal database ID)
+ * Since users can only be in one group, this returns that group's ID or null
+ */
+export async function getUserSingleGroupId(clerkUserId: string): Promise<string | null> {
+  try {
+    const dbUser = await db.query.users.findFirst({
+      where: eq(users.clerkUserId, clerkUserId),
+    });
+
+    if (!dbUser) {
+      return null;
+    }
+
+    const membership = await db.query.plantGroupMembers.findFirst({
+      where: eq(plantGroupMembers.userId, dbUser.id),
+    });
+
+    return membership?.plantGroupId || null;
+  } catch (error) {
+    console.error('Error getting user single group ID:', error);
+    return null;
+  }
+}
+
 // ============================================
 // GET USER'S DB ID FROM CLERK ID
 // ============================================
